@@ -41,6 +41,9 @@ curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.s
 # Machine mode
 curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
+```
+
+For this fork’s `dev` Release and Reality fallback fields, use the explicit deployment guides below.
 
 ## xbctl
 
@@ -64,9 +67,8 @@ Legacy single-panel config is fully compatible. Appending bindings auto-migrates
 - Custom routes: [docs-custom-routes.md](docs-custom-routes.md)
 - Custom outbounds: [docs-custom-outbounds.md](docs-custom-outbounds.md)
 - DNS providers (ACME DNS-01): [docs-dns-providers.md](docs-dns-providers.md)
-- Traffic audit, fresh test-node deployment: [docs/traffic-audit-fresh-deployment.md](docs/traffic-audit-fresh-deployment.md)
-- Traffic audit, existing-node migration: [docs/traffic-audit-existing-migration.md](docs/traffic-audit-existing-migration.md)
-- Xboard RiskAudit plugin source: [tools/risk-audit-plugin](tools/risk-audit-plugin)
+- Fresh Linux deployment: [docs/fresh-deployment.md](docs/fresh-deployment.md)
+- Existing Linux deployment upgrade: [docs/existing-deployment-upgrade.md](docs/existing-deployment-upgrade.md)
 
 ## License
 
