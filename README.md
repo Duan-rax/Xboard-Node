@@ -12,6 +12,37 @@ Node backend for [Xboard](https://github.com/cedar2025/Xboard). Supports `sing-b
 - Deploy modes: node mode, machine mode, standalone mode
 - Multi-instance: single process binding multiple panels / nodes
 
+## Changes in this fork
+
+This fork keeps the upstream node behavior and adds an explicit Xray Reality local-fallback path.
+
+### Xray Reality local fallback
+
+Two optional per-instance kernel fields are available:
+
+```yaml
+kernel:
+  type: xray
+  xray_reality_dest_override: "127.0.0.1:8001"
+  xray_reality_xver: 1
+```
+
+- `xray_reality_dest_override` changes the Reality destination only in the node's generated runtime configuration. The panel-side `dest` and `server_name` remain the public hostname used by subscriptions.
+- `xray_reality_xver` controls the Reality fallback PROXY protocol version. With `1`, the local Nginx listener must use `proxy_protocol`.
+- This makes it possible to terminate fallback traffic on a local Nginx site without changing the public SNI or adding a host-file workaround.
+- Both fields are optional. Deployments that do not use a local fallback keep the upstream behavior.
+
+### Fork Release and installer
+
+- Linux `amd64` and `arm64` binaries are published in this repository's `dev` Release.
+- The installer downloads from `Duan-rax/Xboard-Node` by default.
+- The deployment guides verify the downloaded candidate, installed binary, and running process separately so that an old or upstream binary is not mistaken for the fork build.
+
+### Deployment guides
+
+- [Fresh Linux deployment](docs/fresh-deployment.md): install a new Node or Machine and optionally configure Reality with a local Nginx fallback.
+- [Existing Linux deployment upgrade](docs/existing-deployment-upgrade.md): safely replace an existing binary, preserve configuration, verify the running process, and roll back if necessary.
+
 ## Install
 
 ### Docker
@@ -42,8 +73,6 @@ curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.s
 curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 ```
-
-For this fork’s `dev` Release and Reality fallback fields, use the explicit deployment guides below.
 
 ## xbctl
 
