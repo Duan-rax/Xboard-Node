@@ -56,9 +56,9 @@ cd "$UPGRADE_DIR"
 
 RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
 
-curl -fL --retry 3 -o install.sh   https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
-curl -fL --retry 3 -o xboard-node.new   "$RELEASE_BASE/xboard-node-linux-${ARCH}"
-curl -fL --retry 3 -o xbctl.new   "$RELEASE_BASE/xbctl-linux-${ARCH}"
+curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
+curl -fL --retry 3 -o xboard-node.new "$RELEASE_BASE/xboard-node-linux-${ARCH}"
+curl -fL --retry 3 -o xbctl.new "$RELEASE_BASE/xbctl-linux-${ARCH}"
 
 chmod 700 install.sh xboard-node.new xbctl.new
 ./xboard-node.new -v
@@ -70,7 +70,12 @@ Reality 本地回落用户还应验证功能字段：
 
 ```bash
 for key in xray_reality_dest_override xray_reality_xver; do
-  grep -aq "$key" ./xboard-node.new     && echo "$key: present"     || { echo "$key: MISSING"; exit 1; }
+  if grep -aq "$key" ./xboard-node.new; then
+    echo "$key: present"
+  else
+    echo "$key: MISSING"
+    exit 1
+  fi
 done
 ```
 
@@ -83,7 +88,11 @@ done
 ```bash
 cd /root/xboard-node-upgrade
 
-bash ./install.sh upgrade   --binary "$PWD/xboard-node.new"   --xbctl-binary "$PWD/xbctl.new"
+UPGRADE_ARGS=(
+  --binary "$PWD/xboard-node.new"
+  --xbctl-binary "$PWD/xbctl.new"
+)
+bash ./install.sh upgrade "${UPGRADE_ARGS[@]}"
 ```
 
 不要省略 `--binary`。省略它会让安装器自行选择下载源，无法证明安装的就是上一步验证过的文件。
@@ -104,7 +113,7 @@ systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
 readlink -f "/proc/$PID/exe"
 
-sha256sum   /root/xboard-node-upgrade/xboard-node.new   /usr/local/bin/xboard-node   "/proc/$PID/exe"
+sha256sum /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node "/proc/$PID/exe"
 
 cmp -s /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node
 cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"
@@ -115,7 +124,12 @@ echo "candidate, installed binary and running process are identical"
 
 ```bash
 for key in xray_reality_dest_override xray_reality_xver; do
-  grep -aq "$key" "/proc/$PID/exe"     && echo "$key: present"     || { echo "$key: MISSING"; exit 1; }
+  if grep -aq "$key" "/proc/$PID/exe"; then
+    echo "$key: present"
+  else
+    echo "$key: MISSING"
+    exit 1
+  fi
 done
 
 xbctl status
@@ -156,13 +170,13 @@ xbctl restart
 直接测试 Nginx：
 
 ```bash
-curl --haproxy-protocol   --resolve test.example.com:8001:127.0.0.1   -kiv https://test.example.com:8001/
+curl --haproxy-protocol --resolve test.example.com:8001:127.0.0.1 -kiv https://test.example.com:8001/
 ```
 
 测试完整链路：
 
 ```bash
-curl --resolve test.example.com:443:127.0.0.1   -kiv https://test.example.com/
+curl --resolve test.example.com:443:127.0.0.1 -kiv https://test.example.com/
 ```
 
 ## 7. 为什么以前会出现“替换失败”
