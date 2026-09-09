@@ -49,7 +49,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		"log": M{
 			"loglevel": xrayLogLevel(kcfg.LogLevel),
 			"error":    "",
-			"access":   "",
+			"access":   kcfg.XrayAccessLog,
 		},
 		"stats": M{},
 		"policy": M{

@@ -442,6 +442,19 @@ func TestBuildConfig_LogLevel(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_XrayAccessLog(t *testing.T) {
+	nc := &panel.NodeConfig{Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm"}
+	cfg := buildConfig(config.KernelConfig{
+		Type:          "xray",
+		LogLevel:      "warn",
+		XrayAccessLog: "/var/log/xboard-node/xray-access.log",
+	}, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	logConfig := cfg["log"].(M)
+	if got := logConfig["access"]; got != "/var/log/xboard-node/xray-access.log" {
+		t.Fatalf("Xray access log = %v, want configured path", got)
+	}
+}
+
 func TestBuildConfig_StatsEnabled(t *testing.T) {
 	nc := panel.NodeConfig{
 		Protocol:   "vmess",

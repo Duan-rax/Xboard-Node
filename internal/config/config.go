@@ -68,6 +68,7 @@ type KernelOverride struct {
 	ConfigDir    string `yaml:"config_dir,omitempty"`
 	GeoDataDir   string `yaml:"geo_data_dir,omitempty"`
 	LogLevel     string `yaml:"log_level,omitempty"`
+	XrayAccessLog string `yaml:"xray_access_log,omitempty"`
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override,omitempty"`
 	XrayRealityXver         int    `yaml:"xray_reality_xver,omitempty"`
 	CustomConfig string `yaml:"custom_config,omitempty"`
@@ -123,6 +124,8 @@ type KernelConfig struct {
 	Type      string `yaml:"type"` // "singbox" or "xray"
 	ConfigDir string `yaml:"config_dir"`
 	LogLevel  string `yaml:"log_level"`
+	// XrayAccessLog is a local Xray access-log file. It is ignored by sing-box.
+	XrayAccessLog string `yaml:"xray_access_log"`
 	// XrayRealityDestOverride only changes the runtime Reality destination.
 	// Keep the panel's public dest/SNI for subscription generation.
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override"`
@@ -507,6 +510,9 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Kernel.LogLevel == "" {
 		c.Kernel.LogLevel = parent.Kernel.LogLevel
 	}
+	if c.Kernel.XrayAccessLog == "" {
+		c.Kernel.XrayAccessLog = parent.Kernel.XrayAccessLog
+	}
 	if c.Kernel.XrayRealityDestOverride == "" {
 		c.Kernel.XrayRealityDestOverride = parent.Kernel.XrayRealityDestOverride
 	}
@@ -779,6 +785,9 @@ func (c *Config) ExpandNodes() []*Config {
 			}
 			if entry.Kernel.LogLevel != "" {
 				nodeCfg.Kernel.LogLevel = entry.Kernel.LogLevel
+			}
+			if entry.Kernel.XrayAccessLog != "" {
+				nodeCfg.Kernel.XrayAccessLog = entry.Kernel.XrayAccessLog
 			}
 			if entry.Kernel.XrayRealityDestOverride != "" {
 				nodeCfg.Kernel.XrayRealityDestOverride = entry.Kernel.XrayRealityDestOverride

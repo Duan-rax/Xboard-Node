@@ -10,6 +10,8 @@
 # ── Multiple instances ──
 # kernel:
 #   type: "singbox"
+#   # Xray-only local access log, used by traffic-audit collectors.
+#   # xray_access_log: "/var/log/xboard-node/xray-access.log"
 #   # Xray-only Reality runtime overrides. Keep the panel Reality dest public
 #   # for subscription generation, then point the node at a local Nginx/Caddy
 #   # listener that accepts PROXY protocol.
