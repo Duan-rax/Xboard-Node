@@ -38,9 +38,9 @@ cd "$INSTALL_DIR"
 
 RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
 
-curl -fL --retry 3 -o install.sh   https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
-curl -fL --retry 3 -o xboard-node   "$RELEASE_BASE/xboard-node-linux-${ARCH}"
-curl -fL --retry 3 -o xbctl   "$RELEASE_BASE/xbctl-linux-${ARCH}"
+curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
+curl -fL --retry 3 -o xboard-node "$RELEASE_BASE/xboard-node-linux-${ARCH}"
+curl -fL --retry 3 -o xbctl "$RELEASE_BASE/xbctl-linux-${ARCH}"
 
 chmod 700 install.sh xboard-node xbctl
 ./xboard-node -v
@@ -51,7 +51,12 @@ chmod 700 install.sh xboard-node xbctl
 
 ```bash
 for key in xray_reality_dest_override xray_reality_xver; do
-  grep -aq "$key" ./xboard-node     && echo "$key: present"     || { echo "$key: MISSING"; exit 1; }
+  if grep -aq "$key" ./xboard-node; then
+    echo "$key: present"
+  else
+    echo "$key: MISSING"
+    exit 1
+  fi
 done
 
 sha256sum ./xboard-node ./xbctl
@@ -73,12 +78,21 @@ read -r -p 'Machine ID: ' MACHINE_ID
 read -r -s -p 'Machine token: ' PANEL_TOKEN
 echo
 
-bash ./install.sh install   --mode machine   --panel "$PANEL_URL"   --machine-id "$MACHINE_ID"   --token "$PANEL_TOKEN"   --kernel xray   --binary "$PWD/xboard-node"   --xbctl-binary "$PWD/xbctl"
+INSTALL_ARGS=(
+  --mode machine
+  --panel "$PANEL_URL"
+  --machine-id "$MACHINE_ID"
+  --token "$PANEL_TOKEN"
+  --kernel xray
+  --binary "$PWD/xboard-node"
+  --xbctl-binary "$PWD/xbctl"
+)
+bash ./install.sh install "${INSTALL_ARGS[@]}"
 
 unset PANEL_TOKEN
 ```
 
-如需 sing-box，把 `--kernel xray` 攦为 `--kernel singbox`。
+如需 sing-box，把 `--kernel xray` 改为 `--kernel singbox`。
 
 ### Node 模式
 
@@ -92,7 +106,16 @@ read -r -p 'Node ID: ' NODE_ID
 read -r -s -p 'Node token: ' PANEL_TOKEN
 echo
 
-bash ./install.sh install   --mode node   --panel "$PANEL_URL"   --node-id "$NODE_ID"   --token "$PANEL_TOKEN"   --kernel xray   --binary "$PWD/xboard-node"   --xbctl-binary "$PWD/xbctl"
+INSTALL_ARGS=(
+  --mode node
+  --panel "$PANEL_URL"
+  --node-id "$NODE_ID"
+  --token "$PANEL_TOKEN"
+  --kernel xray
+  --binary "$PWD/xboard-node"
+  --xbctl-binary "$PWD/xbctl"
+)
+bash ./install.sh install "${INSTALL_ARGS[@]}"
 
 unset PANEL_TOKEN
 ```
@@ -110,7 +133,7 @@ systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
 readlink -f "/proc/$PID/exe"
 
-sha256sum   /root/xboard-node-install/xboard-node   /usr/local/bin/xboard-node   "/proc/$PID/exe"
+sha256sum /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node "/proc/$PID/exe"
 
 cmp -s /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node
 cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"
@@ -179,13 +202,13 @@ xbctl restart
 先直接验证 Nginx：
 
 ```bash
-curl --haproxy-protocol   --resolve test.example.com:8001:127.0.0.1   -kiv https://test.example.com:8001/
+curl --haproxy-protocol --resolve test.example.com:8001:127.0.0.1 -kiv https://test.example.com:8001/
 ```
 
 再验证完整的 `443 → Xray Reality → Nginx` 链路：
 
 ```bash
-curl --resolve test.example.com:443:127.0.0.1   -kiv https://test.example.com/
+curl --resolve test.example.com:443:127.0.0.1 -kiv https://test.example.com/
 ```
 
 返回站点内容或预期的 HTTP 状态码即表示回落链路可用。
