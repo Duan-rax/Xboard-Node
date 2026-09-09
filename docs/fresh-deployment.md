@@ -6,6 +6,8 @@
 
 > 文中的 `<...>` 是占位符。不要把面板 Token 提交到 Git 或发送到公开聊天。
 
+> 执行约定：每个命令块都是独立单元，请整块复制执行，不要把变量赋值和检查步骤拆开。检查失败只会显示“停止”，不会主动关闭当前 SSH 会话；看到“停止”后不要继续下一节。
+
 ## 1. 环境要求
 
 - Debian、Ubuntu 或其他使用 systemd 的 Linux
@@ -13,10 +15,15 @@
 - 可访问 GitHub、Xboard 面板和节点所需端口
 - 支持 `amd64` 或 `arm64`
 
-安装基础工具：
+先单独进入 root shell：
 
 ```bash
 sudo -i
+```
+
+进入 root shell 后安装基础工具：
+
+```bash
 apt-get update
 apt-get install -y curl ca-certificates
 ```
@@ -29,37 +36,56 @@ apt-get install -y curl ca-certificates
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
   aarch64|arm64) ARCH=arm64 ;;
-  *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+  *) ARCH="" ;;
 esac
 
-INSTALL_DIR=/root/xboard-node-install
-install -d -m 0700 "$INSTALL_DIR"
-cd "$INSTALL_DIR"
+if [ -z "$ARCH" ]; then
+  echo "Unsupported architecture: $(uname -m)"
+  echo "停止：未下载任何文件。"
+else
+  INSTALL_DIR=/root/xboard-node-install
+  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
 
-RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
+  install -d -m 0700 "$INSTALL_DIR"
+  cd "$INSTALL_DIR"
 
-curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
-curl -fL --retry 3 -o xboard-node "$RELEASE_BASE/xboard-node-linux-${ARCH}"
-curl -fL --retry 3 -o xbctl "$RELEASE_BASE/xbctl-linux-${ARCH}"
-
-chmod 700 install.sh xboard-node xbctl
-./xboard-node -v
-./xbctl version
+  if curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh &&
+     curl -fL --retry 3 -o xboard-node "$RELEASE_BASE/xboard-node-linux-${ARCH}" &&
+     curl -fL --retry 3 -o xbctl "$RELEASE_BASE/xbctl-linux-${ARCH}"; then
+    chmod 700 install.sh xboard-node xbctl
+    ./xboard-node -v
+    ./xbctl version
+  else
+    echo "停止：下载失败，请检查网络后重新执行本命令块。"
+  fi
+fi
 ```
 
 若要使用 Reality 本地回落功能，在安装前确认候选二进制包含相关配置字段：
 
 ```bash
-for key in xray_reality_dest_override xray_reality_xver; do
-  if grep -aq "$key" ./xboard-node; then
-    echo "$key: present"
-  else
-    echo "$key: MISSING"
-    exit 1
-  fi
-done
+cd /root/xboard-node-install
 
-sha256sum ./xboard-node ./xbctl
+if [ ! -x ./xboard-node ] || [ ! -x ./xbctl ]; then
+  echo "停止：候选文件不存在或不可执行，请先重新执行下载命令块。"
+else
+  MISSING=0
+
+  for key in xray_reality_dest_override xray_reality_xver; do
+    if grep -aq "$key" ./xboard-node; then
+      echo "$key: present"
+    else
+      echo "$key: MISSING"
+      MISSING=1
+    fi
+  done
+
+  if [ "$MISSING" -ne 0 ]; then
+    echo "停止：候选文件不包含所需字段，不要继续安装。"
+  else
+    sha256sum ./xboard-node ./xbctl
+  fi
+fi
 ```
 
 `./xboard-node -v` 只验证当前目录中的候选文件，并不代表该文件已经安装。
@@ -131,16 +157,21 @@ PID=$(systemctl show xboard-node -p MainPID --value)
 
 systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
-readlink -f "/proc/$PID/exe"
 
-sha256sum /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node "/proc/$PID/exe"
-
-if cmp -s /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node &&
-   cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
-  echo "candidate, installed binary and running process are identical"
+if [ ! -r /root/xboard-node-install/xboard-node ]; then
+  echo "停止：找不到已验证的候选文件。"
+elif [ -z "$PID" ] || [ "$PID" = "0" ] || [ ! -r "/proc/$PID/exe" ]; then
+  echo "停止：xboard-node 没有正在运行的主进程。"
 else
-  echo "binary verification failed"
-  exit 1
+  readlink -f "/proc/$PID/exe"
+  sha256sum /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node "/proc/$PID/exe"
+
+  if cmp -s /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node &&
+     cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
+    echo "candidate, installed binary and running process are identical"
+  else
+    echo "停止：二进制校验失败，请按升级文档重新替换。"
+  fi
 fi
 
 xbctl status
@@ -230,12 +261,16 @@ curl --resolve test.example.com:443:127.0.0.1 -kiv https://test.example.com/
 ```bash
 PID=$(systemctl show xboard-node -p MainPID --value)
 
-for file in /usr/local/bin/xboard-node "/proc/$PID/exe"; do
-  echo "=== $file ==="
-  for key in xray_reality_dest_override xray_reality_xver; do
-    grep -aq "$key" "$file" && echo "$key: present" || echo "$key: MISSING"
+if [ -z "$PID" ] || [ "$PID" = "0" ] || [ ! -r "/proc/$PID/exe" ]; then
+  echo "停止：xboard-node 没有正在运行的主进程。"
+else
+  for file in /usr/local/bin/xboard-node "/proc/$PID/exe"; do
+    echo "=== $file ==="
+    for key in xray_reality_dest_override xray_reality_xver; do
+      grep -aq "$key" "$file" && echo "$key: present" || echo "$key: MISSING"
+    done
   done
-done
+fi
 ```
 
 ### 浏览器显示 `ERR_INVALID_RESPONSE`
