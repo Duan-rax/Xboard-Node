@@ -68,6 +68,8 @@ type KernelOverride struct {
 	ConfigDir    string `yaml:"config_dir,omitempty"`
 	GeoDataDir   string `yaml:"geo_data_dir,omitempty"`
 	LogLevel     string `yaml:"log_level,omitempty"`
+	XrayRealityDestOverride string `yaml:"xray_reality_dest_override,omitempty"`
+	XrayRealityXver         int    `yaml:"xray_reality_xver,omitempty"`
 	CustomConfig string `yaml:"custom_config,omitempty"`
 }
 
@@ -121,6 +123,10 @@ type KernelConfig struct {
 	Type      string `yaml:"type"` // "singbox" or "xray"
 	ConfigDir string `yaml:"config_dir"`
 	LogLevel  string `yaml:"log_level"`
+	// XrayRealityDestOverride only changes the runtime Reality destination.
+	// Keep the panel's public dest/SNI for subscription generation.
+	XrayRealityDestOverride string `yaml:"xray_reality_dest_override"`
+	XrayRealityXver         int    `yaml:"xray_reality_xver"`
 
 	// GeoDataDir is the directory that contains GeoIP/GeoSite database files.
 	// For sing-box: geoip.db and geosite.db (geoip2-format).
@@ -501,6 +507,12 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Kernel.LogLevel == "" {
 		c.Kernel.LogLevel = parent.Kernel.LogLevel
 	}
+	if c.Kernel.XrayRealityDestOverride == "" {
+		c.Kernel.XrayRealityDestOverride = parent.Kernel.XrayRealityDestOverride
+	}
+	if c.Kernel.XrayRealityXver == 0 {
+		c.Kernel.XrayRealityXver = parent.Kernel.XrayRealityXver
+	}
 	if c.Kernel.GeoDataDir == "" {
 		c.Kernel.GeoDataDir = parent.Kernel.GeoDataDir
 	}
@@ -767,6 +779,12 @@ func (c *Config) ExpandNodes() []*Config {
 			}
 			if entry.Kernel.LogLevel != "" {
 				nodeCfg.Kernel.LogLevel = entry.Kernel.LogLevel
+			}
+			if entry.Kernel.XrayRealityDestOverride != "" {
+				nodeCfg.Kernel.XrayRealityDestOverride = entry.Kernel.XrayRealityDestOverride
+			}
+			if entry.Kernel.XrayRealityXver != 0 {
+				nodeCfg.Kernel.XrayRealityXver = entry.Kernel.XrayRealityXver
 			}
 			if entry.Kernel.CustomConfig != "" {
 				nodeCfg.Kernel.CustomConfig = entry.Kernel.CustomConfig
