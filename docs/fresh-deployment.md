@@ -127,7 +127,7 @@ unset PANEL_TOKEN
 服务真正运行的文件是 `/usr/local/bin/xboard-node`。候选文件、已安装文件和运行中进程必须一致：
 
 ```bash
-PID=$(pidof xboard-node)
+PID=$(systemctl show xboard-node -p MainPID --value)
 
 systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
@@ -135,9 +135,13 @@ readlink -f "/proc/$PID/exe"
 
 sha256sum /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node "/proc/$PID/exe"
 
-cmp -s /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node
-cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"
-echo "candidate, installed binary and running process are identical"
+if cmp -s /root/xboard-node-install/xboard-node /usr/local/bin/xboard-node &&
+   cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
+  echo "candidate, installed binary and running process are identical"
+else
+  echo "binary verification failed"
+  exit 1
+fi
 
 xbctl status
 journalctl -u xboard-node -n 100 --no-pager
@@ -224,7 +228,7 @@ curl --resolve test.example.com:443:127.0.0.1 -kiv https://test.example.com/
 检查已安装文件和运行中进程，而不是只检查下载目录：
 
 ```bash
-PID=$(pidof xboard-node)
+PID=$(systemctl show xboard-node -p MainPID --value)
 
 for file in /usr/local/bin/xboard-node "/proc/$PID/exe"; do
   echo "=== $file ==="
