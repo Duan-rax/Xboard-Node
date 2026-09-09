@@ -10,6 +10,11 @@
 # ── Multiple instances ──
 # kernel:
 #   type: "singbox"
+#   # Xray-only Reality runtime overrides. Keep the panel Reality dest public
+#   # for subscription generation, then point the node at a local Nginx/Caddy
+#   # listener that accepts PROXY protocol.
+#   # xray_reality_dest_override: "127.0.0.1:8001"
+#   # xray_reality_xver: 1
 # log:
 #   level: "info"
 # instances:
