@@ -259,6 +259,44 @@ func TestBuildConfig_VLESS_Flow(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_RealityLocalOverride(t *testing.T) {
+	kcfg := config.KernelConfig{
+		Type:                    "xray",
+		LogLevel:                "warn",
+		XrayRealityDestOverride: "127.0.0.1:8001",
+		XrayRealityXver:         1,
+	}
+	nc := &panel.NodeConfig{
+		Protocol:   "vless",
+		ServerPort: 443,
+		TLS:        2,
+		Flow:       "xtls-rprx-vision",
+		TLSSettings: map[string]interface{}{
+			"private_key": "test-private-key",
+			"short_id":    "abcd",
+			// Simulate panel versions which expose only a public dest.
+			"dest": "sg.keado.net:443",
+			"xver": 2,
+		},
+	}
+
+	cfg := buildConfig(kcfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	inbound := cfg["inbounds"].([]M)[0]
+	stream := inbound["streamSettings"].(M)
+	reality := stream["realitySettings"].(M)
+
+	if got := reality["dest"]; got != "127.0.0.1:8001" {
+		t.Fatalf("runtime Reality dest = %v, want local override", got)
+	}
+	if got := reality["xver"]; got != 1 {
+		t.Fatalf("runtime Reality xver = %v, want 1", got)
+	}
+	serverNames, ok := reality["serverNames"].([]string)
+	if !ok || len(serverNames) != 1 || serverNames[0] != "sg.keado.net" {
+		t.Fatalf("Reality serverNames = %#v, want [sg.keado.net]", reality["serverNames"])
+	}
+}
+
 func TestBuildRouting_Default(t *testing.T) {
 	routing := buildRouting(nil, nil, nil)
 	rules := routing["rules"].([]M)
