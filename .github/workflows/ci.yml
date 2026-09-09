@@ -115,9 +115,9 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/cedar2025/xboard-node:latest
-            ghcr.io/cedar2025/xboard-node:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/') && format('ghcr.io/cedar2025/xboard-node:{0}', github.ref_name) || '' }}
+            ghcr.io/duan-rax/xboard-node:latest
+            ghcr.io/duan-rax/xboard-node:${{ github.sha }}
+            ${{ startsWith(github.ref, 'refs/tags/') && format('ghcr.io/duan-rax/xboard-node:{0}', github.ref_name) || '' }}
 
   release:
     name: Release
@@ -143,6 +143,5 @@ jobs:
             dist/xboard-node-linux-arm64
             dist/traffic-audit-collector-linux-amd64
             dist/traffic-audit-collector-linux-arm64
-            dist/xboard-node-linux-arm64
             dist/xbctl-linux-amd64
             dist/xbctl-linux-arm64
