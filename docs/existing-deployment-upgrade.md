@@ -11,7 +11,7 @@ sudo -i
 
 systemctl cat xboard-node
 systemctl show xboard-node -p ExecStart -p EnvironmentFiles --no-pager
-PID=$(pidof xboard-node)
+PID=$(systemctl show xboard-node -p MainPID --value)
 readlink -f "/proc/$PID/exe"
 sha256sum "/proc/$PID/exe" /usr/local/bin/xboard-node
 ```
@@ -107,7 +107,7 @@ bash ./install.sh upgrade "${UPGRADE_ARGS[@]}"
 ## 5. 验证替换结果
 
 ```bash
-PID=$(pidof xboard-node)
+PID=$(systemctl show xboard-node -p MainPID --value)
 
 systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
@@ -115,9 +115,13 @@ readlink -f "/proc/$PID/exe"
 
 sha256sum /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node "/proc/$PID/exe"
 
-cmp -s /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node
-cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"
-echo "candidate, installed binary and running process are identical"
+if cmp -s /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node &&
+   cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
+  echo "candidate, installed binary and running process are identical"
+else
+  echo "binary verification failed"
+  exit 1
+fi
 ```
 
 最后确认 Reality 字段确实存在于运行中进程：
