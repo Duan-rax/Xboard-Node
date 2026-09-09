@@ -1,0 +1,19 @@
+{
+  "panel_event_url": "https://panel.example.com/api/v1/risk-audit/events",
+  "webhook_secret": "replace-with-the-plugin-webhook-secret",
+  "interval_seconds": 2,
+  "targets": [
+    {
+      "node_id": "sg-anytls-01",
+      "kernel": "singbox",
+      "clash_api": "http://127.0.0.1:19090",
+      "clash_secret": "replace-with-a-local-clash-api-secret",
+      "singbox_journal_unit": "xboard-node"
+    },
+    {
+      "node_id": "hk-xray-01",
+      "kernel": "xray",
+      "xray_access_log": "/var/log/xray/access.log"
+    }
+  ]
+}
