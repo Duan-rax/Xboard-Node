@@ -2,7 +2,7 @@
 
 本文适用于一台尚未安装 Xboard-Node 的 Linux VPS，目标是从本仓库的 `dev` Release 安装节点后端并连接现有 Xboard 面板。
 
-本文不包含流量采集、访问审计、RiskAudit 插件或 Clash API。
+本文仅包含节点安装、升级、运行验证，以及可选的 Reality 本地回落配置。
 
 > 文中的 `<...>` 是占位符。不要把面板 Token 提交到 Git 或发送到公开聊天。
 
