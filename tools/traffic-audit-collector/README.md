@@ -31,12 +31,12 @@ The collector tails a standard Xray access log and sends destination, source, an
 
 For V2bX, point `xray_access_log` at its Xray access-log file after enabling access logging in V2bX.
 
-For current Xboard-Node Xray, the generated config disables Xray access logs; `kernel.custom_config` cannot replace its generated `log` section. This package includes `patches/xboard-node-enable-xray-access-log.patch`, which adds `kernel.access_log` to the node configuration and passes it into the generated Xray config. Build a pinned Xboard-Node release with the patch, then configure the Xray instance as follows:
+Current Xboard-Node releases from this fork expose Xray access logging directly. Configure the node instance as follows; no patch and no local Go build are required:
 
 ```yaml
 kernel:
   type: xray
-  access_log: /var/log/xboard-node/xray-access.log
+  xray_access_log: /var/log/xboard-node/xray-access.log
 ```
 
 Create the parent directory with permissions that permit the Xboard-Node service user to write and the collector service to read. Xray events contribute domain/IP, source, user ID when present, and connection count; the Xray access log has no per-destination byte counters.
