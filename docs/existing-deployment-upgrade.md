@@ -4,16 +4,29 @@
 
 本文仅包含节点安装、升级、运行验证，以及可选的 Reality 本地回落配置。
 
+> 执行约定：每个命令块都是独立单元，请整块复制执行，不要把变量赋值和检查步骤拆开。检查失败只会显示“停止”，不会主动关闭当前 SSH 会话；看到“停止”后不要继续下一节。
+
 ## 1. 先确认当前安装
+
+先单独进入 root shell：
 
 ```bash
 sudo -i
+```
 
+进入 root shell 后执行检查：
+
+```bash
 systemctl cat xboard-node
 systemctl show xboard-node -p ExecStart -p EnvironmentFiles --no-pager
+
 PID=$(systemctl show xboard-node -p MainPID --value)
-readlink -f "/proc/$PID/exe"
-sha256sum "/proc/$PID/exe" /usr/local/bin/xboard-node
+if [ -z "$PID" ] || [ "$PID" = "0" ] || [ ! -r "/proc/$PID/exe" ]; then
+  echo "停止：xboard-node 没有正在运行的主进程。"
+else
+  readlink -f "/proc/$PID/exe"
+  sha256sum "/proc/$PID/exe" /usr/local/bin/xboard-node
+fi
 ```
 
 标准安装的 `ExecStart` 应指向：
@@ -47,36 +60,57 @@ echo "Backup: $BACKUP"
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
   aarch64|arm64) ARCH=arm64 ;;
-  *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+  *) ARCH="" ;;
 esac
 
-UPGRADE_DIR=/root/xboard-node-upgrade
-install -d -m 0700 "$UPGRADE_DIR"
-cd "$UPGRADE_DIR"
+if [ -z "$ARCH" ]; then
+  echo "Unsupported architecture: $(uname -m)"
+  echo "停止：未下载任何文件。"
+else
+  UPGRADE_DIR=/root/xboard-node-upgrade
+  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
 
-RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
+  install -d -m 0700 "$UPGRADE_DIR"
+  cd "$UPGRADE_DIR"
 
-curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh
-curl -fL --retry 3 -o xboard-node.new "$RELEASE_BASE/xboard-node-linux-${ARCH}"
-curl -fL --retry 3 -o xbctl.new "$RELEASE_BASE/xbctl-linux-${ARCH}"
-
-chmod 700 install.sh xboard-node.new xbctl.new
-./xboard-node.new -v
-./xbctl.new version
-sha256sum xboard-node.new xbctl.new
+  if curl -fL --retry 3 -o install.sh https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh &&
+     curl -fL --retry 3 -o xboard-node.new "$RELEASE_BASE/xboard-node-linux-${ARCH}" &&
+     curl -fL --retry 3 -o xbctl.new "$RELEASE_BASE/xbctl-linux-${ARCH}"; then
+    chmod 700 install.sh xboard-node.new xbctl.new
+    ./xboard-node.new -v
+    ./xbctl.new version
+    sha256sum xboard-node.new xbctl.new
+  else
+    echo "停止：下载失败，请检查网络后重新执行本命令块。"
+  fi
+fi
 ```
 
 Reality 本地回落用户还应验证功能字段：
 
 ```bash
-for key in xray_reality_dest_override xray_reality_xver; do
-  if grep -aq "$key" ./xboard-node.new; then
-    echo "$key: present"
+cd /root/xboard-node-upgrade
+
+if [ ! -x ./xboard-node.new ]; then
+  echo "停止：候选文件不存在或不可执行，请先重新执行下载命令块。"
+else
+  MISSING=0
+
+  for key in xray_reality_dest_override xray_reality_xver; do
+    if grep -aq "$key" ./xboard-node.new; then
+      echo "$key: present"
+    else
+      echo "$key: MISSING"
+      MISSING=1
+    fi
+  done
+
+  if [ "$MISSING" -ne 0 ]; then
+    echo "停止：候选文件不包含所需字段，不要替换当前服务。"
   else
-    echo "$key: MISSING"
-    exit 1
+    echo "候选文件包含所需字段，可以继续升级。"
   fi
-done
+fi
 ```
 
 任何字段显示 `MISSING` 时立即停止，不要替换当前服务。
@@ -111,30 +145,48 @@ PID=$(systemctl show xboard-node -p MainPID --value)
 
 systemctl is-active xboard-node
 systemctl show xboard-node -p ExecStart --no-pager
-readlink -f "/proc/$PID/exe"
 
-sha256sum /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node "/proc/$PID/exe"
-
-if cmp -s /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node &&
-   cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
-  echo "candidate, installed binary and running process are identical"
+if [ ! -r /root/xboard-node-upgrade/xboard-node.new ]; then
+  echo "停止：找不到已验证的候选文件。"
+elif [ -z "$PID" ] || [ "$PID" = "0" ] || [ ! -r "/proc/$PID/exe" ]; then
+  echo "停止：xboard-node 没有正在运行的主进程。"
 else
-  echo "binary verification failed"
-  exit 1
+  readlink -f "/proc/$PID/exe"
+  sha256sum /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node "/proc/$PID/exe"
+
+  if cmp -s /root/xboard-node-upgrade/xboard-node.new /usr/local/bin/xboard-node &&
+     cmp -s /usr/local/bin/xboard-node "/proc/$PID/exe"; then
+    echo "candidate, installed binary and running process are identical"
+  else
+    echo "停止：二进制校验失败，请检查安装器日志或执行回滚。"
+  fi
 fi
 ```
 
 最后确认 Reality 字段确实存在于运行中进程：
 
 ```bash
-for key in xray_reality_dest_override xray_reality_xver; do
-  if grep -aq "$key" "/proc/$PID/exe"; then
-    echo "$key: present"
+PID=$(systemctl show xboard-node -p MainPID --value)
+MISSING=0
+
+if [ -z "$PID" ] || [ "$PID" = "0" ] || [ ! -r "/proc/$PID/exe" ]; then
+  echo "停止：xboard-node 没有正在运行的主进程。"
+else
+  for key in xray_reality_dest_override xray_reality_xver; do
+    if grep -aq "$key" "/proc/$PID/exe"; then
+      echo "$key: present"
+    else
+      echo "$key: MISSING"
+      MISSING=1
+    fi
+  done
+
+  if [ "$MISSING" -ne 0 ]; then
+    echo "停止：运行中的程序不包含所需字段。"
   else
-    echo "$key: MISSING"
-    exit 1
+    echo "运行中的程序包含所需字段。"
   fi
-done
+fi
 
 xbctl status
 journalctl -u xboard-node -n 100 --no-pager
@@ -215,10 +267,16 @@ journalctl -u xboard-node -n 200 --no-pager
 需要手动恢复时，使用第 2 节生成的确切备份目录：
 
 ```bash
-systemctl stop xboard-node
-install -m 0755 /root/xboard-node-backup-<时间戳>/xboard-node /usr/local/bin/xboard-node
-systemctl start xboard-node
-systemctl is-active xboard-node
+ROLLBACK_DIR=/root/xboard-node-backup-YYYYMMDD-HHMMSS
+
+if [ ! -x "$ROLLBACK_DIR/xboard-node" ]; then
+  echo "停止：请先把 ROLLBACK_DIR 改为实际备份目录。"
+else
+  systemctl stop xboard-node
+  install -m 0755 "$ROLLBACK_DIR/xboard-node" /usr/local/bin/xboard-node
+  systemctl start xboard-node
+  systemctl is-active xboard-node
+fi
 ```
 
 确认服务恢复后再处理配置。不要删除备份目录，直到节点稳定运行。
