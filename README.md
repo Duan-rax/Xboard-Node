@@ -64,6 +64,9 @@ Legacy single-panel config is fully compatible. Appending bindings auto-migrates
 - Custom routes: [docs-custom-routes.md](docs-custom-routes.md)
 - Custom outbounds: [docs-custom-outbounds.md](docs-custom-outbounds.md)
 - DNS providers (ACME DNS-01): [docs-dns-providers.md](docs-dns-providers.md)
+- Traffic audit, fresh test-node deployment: [docs/traffic-audit-fresh-deployment.md](docs/traffic-audit-fresh-deployment.md)
+- Traffic audit, existing-node migration: [docs/traffic-audit-existing-migration.md](docs/traffic-audit-existing-migration.md)
+- Xboard RiskAudit plugin source: [tools/risk-audit-plugin](tools/risk-audit-plugin)
 
 ## License
 
