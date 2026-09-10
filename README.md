@@ -98,6 +98,7 @@ Legacy single-panel config is fully compatible. Appending bindings auto-migrates
 - DNS providers (ACME DNS-01): [docs-dns-providers.md](docs-dns-providers.md)
 - Fresh Linux deployment: [docs/fresh-deployment.md](docs/fresh-deployment.md)
 - Existing Linux deployment upgrade: [docs/existing-deployment-upgrade.md](docs/existing-deployment-upgrade.md)
+- Machine mode automatic traffic audit: [docs/machine-traffic-audit.md](docs/machine-traffic-audit.md)
 
 ## License
 
