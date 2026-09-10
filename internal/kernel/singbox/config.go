@@ -74,7 +74,26 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	mergeCustomSingbox(cfg, kcfg)
+	applyAuditClashAPI(cfg, kcfg)
 	return cfg
+}
+
+// applyAuditClashAPI runs after custom_config merging so a shared custom
+// experimental section cannot accidentally make multiple machine-managed
+// sing-box instances bind the same controller port.
+func applyAuditClashAPI(cfg M, kcfg config.KernelConfig) {
+	if !kcfg.SingBoxAuditAPIEnabled || kcfg.SingBoxAuditAPIPort <= 0 || kcfg.SingBoxAuditAPISecret == "" {
+		return
+	}
+	experimental, ok := cfg["experimental"].(map[string]interface{})
+	if !ok {
+		experimental = M{}
+		cfg["experimental"] = experimental
+	}
+	experimental["clash_api"] = M{
+		"external_controller": "127.0.0.1:" + strconv.Itoa(kcfg.SingBoxAuditAPIPort),
+		"secret":              kcfg.SingBoxAuditAPISecret,
+	}
 }
 
 // outboundConfigToSingbox converts a structured OutboundConfig (from the panel)

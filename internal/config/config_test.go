@@ -474,6 +474,25 @@ instances:
 	}
 }
 
+func TestExpandMachineNode_AssignsAuditPort(t *testing.T) {
+	cfg := &Config{
+		Kernel: KernelConfig{
+			ConfigDir:                 "/etc/xboard-node",
+			SingBoxAuditAPIEnabled:   true,
+			SingBoxAuditAPIBasePort:  19090,
+			SingBoxAuditAPISecret:    "local-secret",
+		},
+		Machine: &MachineConfig{MachineID: 4, Token: "machine-token"},
+	}
+	node := cfg.ExpandMachineNode(33, "shadowsocks")
+	if got, want := node.Kernel.SingBoxAuditAPIPort, 19123; got != want {
+		t.Fatalf("audit port = %d, want %d", got, want)
+	}
+	if node.Panel.NodeID != 33 || node.Panel.MachineID != 4 {
+		t.Fatalf("machine node identity = %+v", node.Panel)
+	}
+}
+
 func TestLoadRoot_InstanceOrderDoesNotAffectConfigDir(t *testing.T) {
 	yamlTmpl := func(first, second int) string {
 		return fmt.Sprintf(`

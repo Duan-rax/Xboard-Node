@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,6 +28,7 @@ type Config struct {
 	WebhookSecret string   `json:"webhook_secret"`
 	IntervalSeconds int    `json:"interval_seconds"`
 	Targets        []Target `json:"targets"`
+	ManifestPaths  []string `json:"manifest_paths"`
 }
 
 type Target struct {
@@ -96,6 +98,12 @@ type singBoxIdentity struct {
 	ExpiresAt time.Time
 }
 
+type managedTarget struct {
+	target Target
+	cancel context.CancelFunc
+	owners map[string]bool
+}
+
 type Collector struct {
 	cfg     Config
 	client  *http.Client
@@ -103,6 +111,9 @@ type Collector struct {
 	counters map[string]counter
 	singBoxContexts  map[string]singBoxLogContext
 	singBoxIdentities map[string]singBoxIdentity
+	startMu sync.Mutex
+	startedTargets map[string]*managedTarget
+	startedJournalUnits map[string]bool
 }
 
 var (
@@ -126,18 +137,14 @@ func main() {
 		counters: make(map[string]counter),
 		singBoxContexts: make(map[string]singBoxLogContext),
 		singBoxIdentities: make(map[string]singBoxIdentity),
+		startedTargets: make(map[string]*managedTarget),
+		startedJournalUnits: make(map[string]bool),
 	}
 
-	for _, target := range cfg.Targets {
-		target := target
-		if target.ClashAPI != "" {
-			go collector.pollSingBox(target)
-		}
-		if target.SingBoxJournalUnit != "" {
-			go collector.tailSingBoxJournal(target)
-		}
-		if target.XrayAccessLog != "" {
-			go collector.tailXrayAccessLog(target)
+	collector.syncTargets("static", cfg.Targets)
+	for _, path := range cfg.ManifestPaths {
+		if strings.TrimSpace(path) != "" {
+			go collector.watchManifest(path)
 		}
 	}
 	select {}
@@ -149,7 +156,7 @@ func loadConfig(path string) (Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil { return Config{}, fmt.Errorf("parse config: %w", err) }
 	if cfg.PanelEventURL == "" || cfg.WebhookSecret == "" { return Config{}, errors.New("panel_event_url and webhook_secret are required") }
-	if len(cfg.Targets) == 0 { return Config{}, errors.New("at least one target is required") }
+	if len(cfg.Targets) == 0 && len(cfg.ManifestPaths) == 0 { return Config{}, errors.New("at least one target or manifest_path is required") }
 	if cfg.IntervalSeconds < 1 { cfg.IntervalSeconds = 2 }
 	for i := range cfg.Targets {
 		if cfg.Targets[i].NodeID == "" { return Config{}, fmt.Errorf("targets[%d].node_id is required", i) }
@@ -157,12 +164,94 @@ func loadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-func (c *Collector) pollSingBox(target Target) {
+type targetManifest struct {
+	Targets []Target `json:"targets"`
+}
+
+func (c *Collector) watchManifest(path string) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("audit manifest %s: %v", path, err)
+		} else {
+			var manifest targetManifest
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				log.Printf("audit manifest %s: parse: %v", path, err)
+			} else {
+				c.syncTargets("manifest:"+path, manifest.Targets)
+			}
+		}
+		<-ticker.C
+	}
+}
+
+// syncTargets makes a manifest authoritative for its own targets while
+// preserving static targets. It starts new panel nodes and stops polling
+// controller ports that disappeared after a panel node was removed.
+func (c *Collector) syncTargets(owner string, targets []Target) {
+	wanted := make(map[string]Target, len(targets))
+	for _, target := range targets {
+		if target.NodeID == "" {
+			continue
+		}
+		wanted[targetKey(target)] = target
+	}
+	type launch struct { target Target; ctx context.Context; xray bool; journal bool }
+	var launches []launch
+	c.startMu.Lock()
+	for key, managed := range c.startedTargets {
+		if !managed.owners[owner] || wanted[key].NodeID != "" {
+			continue
+		}
+		delete(managed.owners, owner)
+		if len(managed.owners) == 0 {
+			managed.cancel()
+			delete(c.startedTargets, key)
+		}
+	}
+	for key, target := range wanted {
+		if managed := c.startedTargets[key]; managed != nil {
+			managed.owners[owner] = true
+			continue
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		c.startedTargets[key] = &managedTarget{target: target, cancel: cancel, owners: map[string]bool{owner: true}}
+		startJournal := target.SingBoxJournalUnit != "" && !c.startedJournalUnits[target.SingBoxJournalUnit]
+		if startJournal {
+			c.startedJournalUnits[target.SingBoxJournalUnit] = true
+		}
+		launches = append(launches, launch{target: target, ctx: ctx, xray: target.XrayAccessLog != "", journal: startJournal})
+	}
+	c.startMu.Unlock()
+	for _, item := range launches {
+		if item.target.ClashAPI != "" {
+			go c.pollSingBox(item.ctx, item.target)
+		}
+		if item.xray {
+			go c.tailXrayAccessLog(item.target)
+		}
+		if item.journal {
+			go c.tailSingBoxJournal(item.target.SingBoxJournalUnit)
+		}
+	}
+}
+
+func targetKey(target Target) string {
+	return target.NodeID + "\x00" + target.ClashAPI + "\x00" + target.XrayAccessLog
+}
+
+func (c *Collector) pollSingBox(ctx context.Context, target Target) {
 	ticker := time.NewTicker(time.Duration(c.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
 	for {
 		if err := c.collectSingBox(target); err != nil { log.Printf("sing-box %s: %v", target.NodeID, err) }
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -223,41 +312,41 @@ func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventTyp
 	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID, start), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
 }
 
-func (c *Collector) tailSingBoxJournal(target Target) {
+func (c *Collector) tailSingBoxJournal(unit string) {
 	for {
-		command := exec.Command("journalctl", "-u", target.SingBoxJournalUnit, "-f", "-n", "0", "-o", "cat", "--no-pager")
+		command := exec.Command("journalctl", "-u", unit, "-f", "-n", "0", "-o", "cat", "--no-pager")
 		output, err := command.StdoutPipe()
 		if err != nil {
-			log.Printf("sing-box journal %s: %v", target.NodeID, err)
+			log.Printf("sing-box journal %s: %v", unit, err)
 			time.Sleep(3 * time.Second)
 			continue
 		}
 		if err := command.Start(); err != nil {
-			log.Printf("sing-box journal %s: %v", target.NodeID, err)
+			log.Printf("sing-box journal %s: %v", unit, err)
 			time.Sleep(3 * time.Second)
 			continue
 		}
 		scanner := bufio.NewScanner(output)
 		scanner.Buffer(make([]byte, 4096), 1024*1024)
 		for scanner.Scan() {
-			c.handleSingBoxLogLine(target, scanner.Text())
+			c.handleSingBoxLogLine(unit, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			log.Printf("sing-box journal %s scanner: %v", target.NodeID, err)
+			log.Printf("sing-box journal %s scanner: %v", unit, err)
 		}
 		if err := command.Wait(); err != nil {
-			log.Printf("sing-box journal %s exited: %v", target.NodeID, err)
+			log.Printf("sing-box journal %s exited: %v", unit, err)
 		}
 		time.Sleep(3 * time.Second)
 	}
 }
 
-func (c *Collector) handleSingBoxLogLine(target Target, line string) {
+func (c *Collector) handleSingBoxLogLine(unit, line string) {
 	contextMatch := singBoxContextID.FindStringSubmatch(line)
 	if len(contextMatch) != 2 {
 		return
 	}
-	contextKey := target.NodeID + ":" + contextMatch[1]
+	contextKey := unit + ":" + contextMatch[1]
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry := c.singBoxContexts[contextKey]
@@ -271,7 +360,7 @@ func (c *Collector) handleSingBoxLogLine(target Target, line string) {
 	}
 	c.singBoxContexts[contextKey] = entry
 	if entry.Source != "" && entry.User != "" && entry.Destination != "" {
-		c.singBoxIdentities[singBoxIdentityKey(target, entry.Source, entry.Destination)] = singBoxIdentity{
+		c.singBoxIdentities[singBoxIdentityKey(unit, entry.Source, entry.Destination)] = singBoxIdentity{
 			User: entry.User,
 			ExpiresAt: time.Now().Add(2 * time.Minute),
 		}
@@ -281,12 +370,17 @@ func (c *Collector) handleSingBoxLogLine(target Target, line string) {
 			delete(c.singBoxIdentities, key)
 		}
 	}
+	for key, item := range c.singBoxContexts {
+		if item.UpdatedAt.Before(time.Now().Add(-2 * time.Minute)) {
+			delete(c.singBoxContexts, key)
+		}
+	}
 }
 
 func (c *Collector) singBoxUser(target Target, source, destination string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	key := singBoxIdentityKey(target, source, destination)
+	key := singBoxIdentityKey(target.SingBoxJournalUnit, source, destination)
 	item, found := c.singBoxIdentities[key]
 	if !found || item.ExpiresAt.Before(time.Now()) {
 		delete(c.singBoxIdentities, key)
@@ -295,8 +389,8 @@ func (c *Collector) singBoxUser(target Target, source, destination string) strin
 	return item.User
 }
 
-func singBoxIdentityKey(target Target, source, destination string) string {
-	return target.NodeID + "\x00" + strings.ToLower(strings.TrimSpace(source)) + "\x00" + strings.ToLower(strings.TrimSpace(destination))
+func singBoxIdentityKey(unit, source, destination string) string {
+	return unit + "\x00" + strings.ToLower(strings.TrimSpace(source)) + "\x00" + strings.ToLower(strings.TrimSpace(destination))
 }
 
 func (c *Collector) tailXrayAccessLog(target Target) {

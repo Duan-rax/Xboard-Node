@@ -17,6 +17,13 @@
 #   # listener that accepts PROXY protocol.
 #   # xray_reality_dest_override: "127.0.0.1:8001"
 #   # xray_reality_xver: 1
+#   # Machine-mode audit: one private Clash API is generated for every panel
+#   # node (base port + panel node ID). The collector reads the manifest, so
+#   # it does not need manually maintained node targets.
+#   # singbox_audit_api_enabled: true
+#   # singbox_audit_api_base_port: 19090
+#   # singbox_audit_api_secret: "replace-with-a-long-local-secret"
+#   # audit_manifest_path: "/etc/xboard-node/traffic-audit-targets.json"
 # log:
 #   level: "info"
 # instances:

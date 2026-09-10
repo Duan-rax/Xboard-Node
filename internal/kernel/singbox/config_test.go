@@ -48,6 +48,30 @@ func TestBuildInbound_Shadowsocks(t *testing.T) {
 	assertMapValue(t, users[0], "password", "aaaaaaaa-1111-2222-3333-444444444444")
 }
 
+func TestBuildConfig_AuditClashAPIUsesRuntimePort(t *testing.T) {
+	node := &panel.NodeConfig{Protocol: "shadowsocks", ServerPort: 443, Cipher: "aes-128-gcm"}
+	cfg := buildConfig(config.KernelConfig{
+		LogLevel:                 "warn",
+		SingBoxAuditAPIEnabled:  true,
+		SingBoxAuditAPIPort:     19123,
+		SingBoxAuditAPISecret:   "local-only-secret",
+	}, testNodeSpec(node), testUsers, kernel.TLSCert{})
+	experimental, ok := cfg["experimental"].(map[string]interface{})
+	if !ok {
+		t.Fatal("audit config did not create experimental section")
+	}
+	clashAPI, ok := experimental["clash_api"].(map[string]interface{})
+	if !ok {
+		t.Fatal("audit config did not create clash_api section")
+	}
+	if got := clashAPI["external_controller"]; got != "127.0.0.1:19123" {
+		t.Fatalf("external_controller = %v", got)
+	}
+	if got := clashAPI["secret"]; got != "local-only-secret" {
+		t.Fatalf("secret = %v", got)
+	}
+}
+
 func TestBuildInbound_Shadowsocks2022(t *testing.T) {
 	nc := &panel.NodeConfig{
 		Protocol:   "shadowsocks",

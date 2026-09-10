@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/cedar2025/xboard-node/internal/auditmanifest"
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/controlplane"
 	"github.com/cedar2025/xboard-node/internal/model"
@@ -23,6 +25,7 @@ type nodeHandle struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	mailbox *controlplane.NodeMailbox
+	auditTarget *auditmanifest.Target
 }
 
 // Orchestrator manages all nodes bound to a panel machine. It:
@@ -145,6 +148,22 @@ func (o *Orchestrator) startNode(ctx context.Context, mn panel.MachineNode) {
 			nodeCfg.Kernel.Type = resolved
 		}
 	}
+	if nodeCfg.Kernel.SingBoxAuditAPIEnabled && nodeCfg.Kernel.Type == "singbox" && nodeCfg.Kernel.SingBoxAuditAPIPort > 0 && nodeCfg.Kernel.SingBoxAuditAPISecret != "" {
+		target := &auditmanifest.Target{
+			NodeID:             strconv.Itoa(mn.ID),
+			PanelNodeID:        mn.ID,
+			Kernel:             "singbox",
+			ClashAPI:           fmt.Sprintf("http://127.0.0.1:%d", nodeCfg.Kernel.SingBoxAuditAPIPort),
+			ClashSecret:        nodeCfg.Kernel.SingBoxAuditAPISecret,
+			SingBoxJournalUnit: "xboard-node",
+		}
+		o.mu.Lock()
+		if handle := o.nodes[mn.ID]; handle != nil {
+			handle.auditTarget = target
+		}
+		o.mu.Unlock()
+		o.writeAuditManifest()
+	}
 	// Reset cached ETag so the subsequent GetConfig in Initial() gets a full response.
 	perNodeClient.ResetConfigETag()
 
@@ -189,6 +208,7 @@ func (o *Orchestrator) stopNode(nodeID int) {
 	}
 	delete(o.nodes, nodeID)
 	o.mu.Unlock()
+	o.writeAuditManifest()
 
 	o.eventsMu.Lock()
 	delete(o.mailboxes, nodeID)
@@ -214,9 +234,31 @@ func (o *Orchestrator) stopAll() {
 	for _, h := range handles {
 		<-h.done
 	}
+	o.mu.Lock()
+	o.nodes = make(map[int]*nodeHandle)
+	o.mu.Unlock()
+	o.writeAuditManifest()
 
 	if o.wsCancel != nil {
 		o.wsCancel()
+	}
+}
+
+func (o *Orchestrator) writeAuditManifest() {
+	path := o.cfg.Kernel.AuditManifestPath
+	if path == "" {
+		return
+	}
+	o.mu.Lock()
+	targets := make([]auditmanifest.Target, 0, len(o.nodes))
+	for _, handle := range o.nodes {
+		if handle.auditTarget != nil {
+			targets = append(targets, *handle.auditTarget)
+		}
+	}
+	o.mu.Unlock()
+	if err := auditmanifest.Write(path, targets); err != nil {
+		nlog.Core().Warn("machine: write audit manifest failed", "path", path, "error", err)
 	}
 }
 

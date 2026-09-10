@@ -21,6 +21,43 @@ Add this to the **local** sing-box `custom_config` for the target Xboard-Node in
 
 Set the matching endpoint and secret in `config.json`, then run the collector on the same server. The Clash API must listen on `127.0.0.1`; never use `0.0.0.0` for this purpose.
 
+### Xboard Machine mode: automatic panel-node discovery
+
+When one Xboard machine hosts multiple nodes configured in the panel, do **not** hand-maintain one collector `node_id` per panel node. Enable the node backend's machine audit API once:
+
+```yaml
+kernel:
+  type: singbox
+  log_level: info
+  singbox_audit_api_enabled: true
+  singbox_audit_api_base_port: 19090
+  singbox_audit_api_secret: "a-long-local-only-secret"
+  audit_manifest_path: "/etc/xboard-node/traffic-audit-targets.json"
+```
+
+For a panel node ID `33`, Xboard-Node creates a private controller on
+`127.0.0.1:19123` (`19090 + 33`) and atomically publishes it to the manifest.
+Adding a new node to the machine in Xboard automatically adds its controller
+to that file; removing a node removes it. Choose a base port where
+`base port + largest panel node ID` remains at most `65535`.
+
+Then the collector configuration needs only the manifest path, not sing-box
+targets or panel node IDs:
+
+```json
+{
+  "panel_event_url": "https://panel.example.com/api/v1/risk-audit/events",
+  "webhook_secret": "same-plugin-secret",
+  "interval_seconds": 2,
+  "manifest_paths": ["/etc/xboard-node/traffic-audit-targets.json"]
+}
+```
+
+The collector reloads manifest additions every five seconds. It follows the
+`xboard-node` journal once per service, even when the manifest contains many
+sing-box nodes, so UUID attribution is shared without duplicate journal
+tailers.
+
 For reliable Xboard user attribution, set the sing-box instance to `kernel.log_level: info` and configure the collector target with `singbox_journal_unit: "xboard-node"`. The collector joins the authenticated UUID from sing-box journal lines to the same Clash connection by source IP:port and destination. This does not expose passwords.
 
 Some sing-box Clash API builds omit the authenticated user from `/connections`. For Xboard-Node, set the node `kernel.log_level` to `info` and configure `singbox_journal_unit: "xboard-node"` in the collector target. The collector correlates sing-box's connection ID log lines (source, destination, authenticated UUID) with the Clash connection metadata, then forwards the UUID to Xboard for user-ID mapping. If a connection has no matching user log, it remains visible only in the all-user aggregate.
