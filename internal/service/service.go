@@ -1029,7 +1029,6 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	s.metricsMu.RLock()
 	lastUsers := s.lastUsers
 	lastConfig := s.lastConfig
-	lastConfigHash := s.lastConfigHash
 	configAppliedAt := s.configAppliedAt
 	wsClient := s.wsClient
 	s.metricsMu.RUnlock()
@@ -1049,7 +1048,6 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	if lastConfig != nil && lastConfig.EgressProxy != nil {
 		egressProxyID = lastConfig.EgressProxy.ID
 	}
-	m["config_hash"] = lastConfigHash
 	m["config_applied_at"] = configAppliedAt.Unix()
 	m["egress_proxy_id"] = egressProxyID
 
