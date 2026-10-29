@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -189,9 +190,9 @@ func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context
 	nlog.Core().Debug("sing-box: old instance recycled")
 }
 
-// Reload hot-swaps the inbound users and routing rules without restarting the box.
-// Routes, outbounds, and the connTracker stay alive so in-flight connections
-// continue to be tracked correctly.
+// Reload hot-swaps the inbound users, routing rules, and selected egress
+// outbound without restarting listeners. The router and connTracker stay alive
+// so in-flight connections continue to be tracked correctly.
 func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -221,14 +222,38 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 		return fmt.Errorf("router not available")
 	}
 
-	// Update routing rules
-	if err := router.UpdateRules(opts.Route.Rules, opts.Route.RuleSet); err != nil {
-		nlog.Core().Debug("routing reload failed", "error", err)
-	} else {
-		nlog.Core().Debug("sing-box routing reloaded")
+	outboundManager := service.FromContext[adapter.OutboundManager](s.ctx)
+	if outboundManager == nil {
+		return fmt.Errorf("outbound manager not available")
 	}
 
+	// Install the new egress before changing rules, so no connection can see a
+	// rule that points at a not-yet-created outbound.
 	nopFactory := singLog.NewNOPFactory()
+	staleEgressTag, err := s.installEgressOutbound(
+		outboundManager,
+		router,
+		opts.Outbounds,
+		nodeConfig,
+		nopFactory,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Update routing rules
+	if err := router.UpdateRules(opts.Route.Rules, opts.Route.RuleSet); err != nil {
+		return fmt.Errorf("reload routing: %w", err)
+	}
+	nlog.Core().Debug("sing-box routing reloaded")
+
+	if staleEgressTag != "" {
+		if err := outboundManager.Remove(staleEgressTag); err != nil {
+			nlog.Core().Warn("failed to remove stale egress outbound", "tag", staleEgressTag, "error", err)
+		} else {
+			nlog.Core().Debug("stale egress outbound removed", "tag", staleEgressTag)
+		}
+	}
 
 	// Configuration hash check for inbound reconstruction
 	tlsChanged := !bytes.Equal(s.tls.CertPEM, tls.CertPEM) || !bytes.Equal(s.tls.KeyPEM, tls.KeyPEM)
@@ -312,6 +337,65 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 	s.nodeConfig = nodeConfig
 	s.tls = tls
 	return nil
+}
+
+func (s *SingBox) installEgressOutbound(
+	outboundManager adapter.OutboundManager,
+	router adapter.Router,
+	outbounds []option.Outbound,
+	nodeConfig *model.NodeSpec,
+	loggerFactory singLog.Factory,
+) (string, error) {
+	var previous *model.EgressProxyConfig
+	if s.nodeConfig != nil {
+		previous = s.nodeConfig.EgressProxy
+	}
+	var next *model.EgressProxyConfig
+	if nodeConfig != nil {
+		next = nodeConfig.EgressProxy
+	}
+
+	previousTag := ""
+	if previous != nil {
+		previousTag = model.EgressProxyTag(previous.ID)
+	}
+	if reflect.DeepEqual(previous, next) {
+		return "", nil
+	}
+	if next == nil {
+		return previousTag, nil
+	}
+
+	nextTag := model.EgressProxyTag(next.ID)
+	var selected *option.Outbound
+	for i := range outbounds {
+		if outbounds[i].Tag == nextTag {
+			selected = &outbounds[i]
+			break
+		}
+	}
+	if selected == nil {
+		return "", fmt.Errorf("egress outbound %s missing from generated config", nextTag)
+	}
+
+	logger := loggerFactory.NewLogger(fmt.Sprintf("outbound/%s[%s]", selected.Type, nextTag))
+	if err := outboundManager.Create(
+		s.ctx,
+		router,
+		logger,
+		nextTag,
+		selected.Type,
+		selected.Options,
+	); err != nil {
+		return "", fmt.Errorf("reload egress outbound %s: %w", nextTag, err)
+	}
+	nlog.Core().Info("egress outbound hot-reloaded", "tag", nextTag)
+
+	// Create replaces a same-tag outbound, so only an older tag needs cleanup.
+	if previousTag != "" && previousTag != nextTag {
+		return previousTag, nil
+	}
+	return "", nil
 }
 
 // registerTracker wires the ConnTracker to the current Router exactly once.
