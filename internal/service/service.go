@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -925,7 +926,11 @@ func (s *Service) applyChanges(ctx context.Context, configChanged, usersChanged 
 	// If config changed, delegate to kernel.Reload. The kernel implementation
 	// decides whether to hot-swap users, reconstruct inbounds, or restart itself.
 	if configChanged && s.kernel.IsRunning() {
-		if err := s.kernel.Reload(s.lastConfig, s.lastUsers, s.cert.TLSCert()); err != nil {
+		if egressProxyChanged(s.appliedState.Config, s.lastConfig) {
+			nlog.Core().Info("egress config changed, restarting kernel to update final outbound")
+			s.kernel.Stop()
+			s.startKernel(s.lastConfig, s.lastUsers)
+		} else if err := s.kernel.Reload(s.lastConfig, s.lastUsers, s.cert.TLSCert()); err != nil {
 			nlog.Core().Warn(fmt.Sprintf("reload failed, restarting: %v", err))
 			s.startKernel(s.lastConfig, s.lastUsers)
 		} else {
@@ -1114,6 +1119,17 @@ func (s *Service) sendStatusNow() {
 		return
 	}
 	s.wsClient.SendStatus(s.wsMetrics())
+}
+
+func egressProxyChanged(previous, next *model.NodeSpec) bool {
+	var previousProxy, nextProxy *model.EgressProxyConfig
+	if previous != nil {
+		previousProxy = previous.EgressProxy
+	}
+	if next != nil {
+		nextProxy = next.EgressProxy
+	}
+	return !reflect.DeepEqual(previousProxy, nextProxy)
 }
 
 // computeConfigHash returns a deterministic hash of the node config.
