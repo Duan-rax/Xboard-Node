@@ -63,6 +63,7 @@ type PushClient interface {
 	Run(ctx context.Context)
 	IsConnected() bool
 	SendDeviceReport(devices map[int][]string)
+	SendStatus(metrics map[string]interface{})
 }
 
 type Source interface {

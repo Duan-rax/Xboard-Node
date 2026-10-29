@@ -22,9 +22,9 @@ import (
 
 // nodeHandle tracks a running node service.
 type nodeHandle struct {
-	cancel  context.CancelFunc
-	done    chan struct{}
-	mailbox *controlplane.NodeMailbox
+	cancel      context.CancelFunc
+	done        chan struct{}
+	mailbox     *controlplane.NodeMailbox
 	auditTarget *auditmanifest.Target
 }
 
@@ -452,4 +452,11 @@ func (p *machineNodePush) SendDeviceReport(devices map[int][]string) {
 	payload["devices"] = strDevices
 	data, _ := json.Marshal(payload)
 	p.ws.SendRaw(panel.WSEventReportDevices, data)
+}
+
+func (p *machineNodePush) SendStatus(metrics map[string]interface{}) {
+	if p.ws == nil {
+		return
+	}
+	p.ws.SendNodeStatus(p.nodeID, metrics)
 }

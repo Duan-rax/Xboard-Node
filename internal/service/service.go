@@ -54,10 +54,11 @@ type Service struct {
 	pushInterval int // seconds
 	pullInterval int // seconds
 
-	lastUserHash   string     // hash of user list for change detection
-	lastConfigHash string     // hash of full config for change detection
-	pullBackoff    apiBackoff // backoff for panel pull failures
-	pushBackoff    apiBackoff // backoff for panel push failures
+	lastUserHash    string     // hash of user list for change detection
+	lastConfigHash  string     // hash of full config for change detection
+	configAppliedAt time.Time  // last successful kernel config application
+	pullBackoff     apiBackoff // backoff for panel pull failures
+	pushBackoff     apiBackoff // backoff for panel push failures
 
 	// pushActive prevents overlapping push/pull goroutines.
 	pushActive atomic.Bool
@@ -558,6 +559,7 @@ func (s *Service) handleWSEvent(ctx context.Context, event controlplane.Event) {
 		s.lastConfigHash = newConfigHash
 		s.applyRemoteOverrides(ctx, event.Config)
 		s.applyChanges(ctx, true, false)
+		s.sendStatusNow()
 
 	case controlplane.EventSyncUsers:
 		if event.Users == nil {
@@ -684,6 +686,7 @@ func (s *Service) applyPullResult(ctx context.Context, result pullResult) {
 
 	if configChanged {
 		s.applyChanges(ctx, true, false)
+		s.sendStatusNow()
 	}
 }
 
@@ -738,6 +741,7 @@ func (s *Service) startKernel(nc *model.NodeSpec, users []model.UserSpec) bool {
 
 	s.appliedState.Config = nc
 	s.appliedState.Users = users
+	s.markConfigApplied()
 
 	// Initialize node logger on first successful start
 	if s.nodeLog == nil {
@@ -927,6 +931,7 @@ func (s *Service) applyChanges(ctx context.Context, configChanged, usersChanged 
 		} else {
 			s.appliedState.Config = s.lastConfig
 			s.appliedState.Users = s.lastUsers
+			s.markConfigApplied()
 			if s.nodeLog != nil {
 				s.nodeLog.Info(fmt.Sprintf("config updated, %d users", len(s.lastUsers)))
 			}
@@ -1023,6 +1028,9 @@ func (s *Service) pushReportSync() {
 func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	s.metricsMu.RLock()
 	lastUsers := s.lastUsers
+	lastConfig := s.lastConfig
+	lastConfigHash := s.lastConfigHash
+	configAppliedAt := s.configAppliedAt
 	wsClient := s.wsClient
 	s.metricsMu.RUnlock()
 
@@ -1037,6 +1045,13 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	m["total_connections"] = s.tracker.TotalConnections()
 	m["active_users"] = len(online)
 	m["total_users"] = len(lastUsers)
+	egressProxyID := 0
+	if lastConfig != nil && lastConfig.EgressProxy != nil {
+		egressProxyID = lastConfig.EgressProxy.ID
+	}
+	m["config_hash"] = lastConfigHash
+	m["config_applied_at"] = configAppliedAt.Unix()
+	m["egress_proxy_id"] = egressProxyID
 
 	// Speed
 	m["inbound_speed"] = s.tracker.InboundSpeed()
@@ -1088,6 +1103,19 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	}
 
 	return m
+}
+
+func (s *Service) markConfigApplied() {
+	s.metricsMu.Lock()
+	s.configAppliedAt = time.Now()
+	s.metricsMu.Unlock()
+}
+
+func (s *Service) sendStatusNow() {
+	if s.wsClient == nil || !s.wsClient.IsConnected() {
+		return
+	}
+	s.wsClient.SendStatus(s.wsMetrics())
 }
 
 // computeConfigHash returns a deterministic hash of the node config.

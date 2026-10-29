@@ -182,3 +182,6 @@ func (p *panelPushClient) IsConnected() bool       { return p.inner.IsConnected(
 func (p *panelPushClient) SendDeviceReport(devices map[int][]string) {
 	p.inner.SendDeviceReport(devices)
 }
+func (p *panelPushClient) SendStatus(metrics map[string]interface{}) {
+	p.inner.SendNodeStatus(0, metrics)
+}
