@@ -179,6 +179,16 @@ func cloneNodeSpec(spec *model.NodeSpec) *model.NodeSpec {
 	if spec.CustomRouteRules != nil {
 		clone.CustomRouteRules = append([]model.CustomRouteRule(nil), spec.CustomRouteRules...)
 	}
+	if spec.EgressProxy != nil {
+		egressCopy := *spec.EgressProxy
+		if spec.EgressProxy.Config != nil {
+			egressCopy.Config = make(map[string]any, len(spec.EgressProxy.Config))
+			for k, v := range spec.EgressProxy.Config {
+				egressCopy.Config[k] = v
+			}
+		}
+		clone.EgressProxy = &egressCopy
+	}
 	if spec.CertConfig != nil {
 		certCopy := *spec.CertConfig
 		if spec.CertConfig.DNSEnv != nil {

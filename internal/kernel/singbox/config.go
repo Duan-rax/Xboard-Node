@@ -27,6 +27,11 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		outbounds = append(outbounds, outboundConfigToSingbox(co))
 		tags[strings.ToLower(co.Tag)] = true
 	}
+	if nc.EgressProxy != nil {
+		egress := egressProxyToSingbox(nc.EgressProxy)
+		outbounds = append(outbounds, egress)
+		tags[strings.ToLower(egress["tag"].(string))] = true
+	}
 
 	// Static outbounds from local config file
 	for _, co := range kcfg.CustomOutbound {
@@ -74,8 +79,60 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	mergeCustomSingbox(cfg, kcfg)
+	applyEgressProxyRoute(cfg, nc.EgressProxy)
 	applyAuditClashAPI(cfg, kcfg)
 	return cfg
+}
+
+func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
+	tag := model.EgressProxyTag(proxy.ID)
+	config := proxy.Config
+	base := M{"tag": tag, "server": proxy.Host, "server_port": proxy.Port}
+	credentials := func(m M) {
+		if proxy.Username != "" { m["username"] = proxy.Username }
+		if proxy.Password != "" { m["password"] = proxy.Password }
+	}
+	tls := egressProxyTLS(proxy)
+	switch strings.ToLower(proxy.Protocol) {
+	case "socks5":
+		base["type"] = "socks"; base["version"] = "5"; credentials(base)
+	case "http":
+		base["type"] = "http"; credentials(base); if tls != nil { base["tls"] = tls }
+	case "shadowsocks":
+		base["type"] = "shadowsocks"; base["method"] = config["method"]; credentials(base)
+	case "vless":
+		base["type"] = "vless"; base["uuid"] = config["uuid"]
+		if flow := egressStringValue(config, "flow"); flow != "" { base["flow"] = flow }
+		if tls != nil { base["tls"] = tls }
+	case "trojan":
+		base["type"] = "trojan"; credentials(base); if tls != nil { base["tls"] = tls }
+	}
+	return base
+}
+
+func egressProxyTLS(proxy *model.EgressProxyConfig) M {
+	if !proxy.TLSEnabled && proxy.Config["reality"] == nil { return nil }
+	tls := M{"enabled": true, "insecure": proxy.AllowInsecure}
+	serverName := proxy.TLSServerName
+	if serverName == "" { serverName = egressStringValue(proxy.Config, "server_name") }
+	if serverName != "" { tls["server_name"] = serverName }
+	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
+		tls["reality"] = M{"enabled": true, "public_key": reality["public_key"], "short_id": reality["short_id"]}
+	}
+	return tls
+}
+
+func egressStringValue(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
+	if proxy == nil { return }
+	route, ok := cfg["route"].(M); if !ok { route = M{}; cfg["route"] = route }
+	// Custom block/audit rules still run first; unmatched traffic goes to the
+	// selected administrator-managed egress.
+	route["final"] = model.EgressProxyTag(proxy.ID)
 }
 
 // applyAuditClashAPI runs after custom_config merging so a shared custom

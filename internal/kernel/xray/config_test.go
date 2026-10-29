@@ -82,6 +82,26 @@ func TestBuildConfig_OutboundPriority(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_EgressProxyAddsLastRoute(t *testing.T) {
+	nc := &panel.NodeConfig{
+		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
+		EgressProxy: &panel.EgressProxyConfig{ID: 42, Protocol: "socks5", Host: "198.51.100.8", Port: 1080, Username: "u", Password: "p"},
+	}
+	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	var found M
+	for _, outbound := range cfg["outbounds"].([]M) {
+		if outbound["tag"] == "panel-egress-42" { found = outbound; break }
+	}
+	if found == nil || found["protocol"] != "socks" {
+		t.Fatalf("unexpected egress outbound: %#v", found)
+	}
+	rules := cfg["routing"].(M)["rules"].([]M)
+	last := rules[len(rules)-1]
+	if last["outboundTag"] != "panel-egress-42" {
+		t.Fatalf("last routing outbound = %v, want panel-egress-42", last["outboundTag"])
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string

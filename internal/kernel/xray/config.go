@@ -26,6 +26,11 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		outbounds = append(outbounds, outboundConfigToXray(co))
 		tags[strings.ToLower(co.Tag)] = true
 	}
+	if nc.EgressProxy != nil {
+		egress := egressProxyToXray(nc.EgressProxy)
+		outbounds = append(outbounds, egress)
+		tags[strings.ToLower(egress["tag"].(string))] = true
+	}
 
 	// Static outbounds from local config file
 	for _, co := range kcfg.CustomOutbound {
@@ -83,7 +88,64 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	cfg["routing"] = buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
 
 	mergeCustomXray(cfg, kcfg)
+	applyEgressProxyRoute(cfg, nc.EgressProxy)
 	return cfg
+}
+
+func egressProxyToXray(proxy *model.EgressProxyConfig) M {
+	config := proxy.Config
+	server := M{"address": proxy.Host, "port": proxy.Port}
+	withCredentials := func() {
+		if proxy.Username != "" || proxy.Password != "" {
+			server["users"] = []M{{"user": proxy.Username, "pass": proxy.Password}}
+		}
+	}
+	result := M{"tag": model.EgressProxyTag(proxy.ID)}
+	switch strings.ToLower(proxy.Protocol) {
+	case "socks5":
+		withCredentials(); result["protocol"] = "socks"; result["settings"] = M{"servers": []M{server}}
+	case "http":
+		withCredentials(); result["protocol"] = "http"; result["settings"] = M{"servers": []M{server}}
+	case "shadowsocks":
+		server["method"] = config["method"]; server["password"] = proxy.Password
+		result["protocol"] = "shadowsocks"; result["settings"] = M{"servers": []M{server}}
+	case "vless":
+		user := M{"id": config["uuid"], "encryption": "none"}
+		if flow := egressStringValue(config, "flow"); flow != "" { user["flow"] = flow }
+		server["users"] = []M{user}; result["protocol"] = "vless"; result["settings"] = M{"vnext": []M{server}}
+	case "trojan":
+		server["password"] = proxy.Password; result["protocol"] = "trojan"; result["settings"] = M{"servers": []M{server}}
+	}
+	if stream := egressProxyStreamSettings(proxy); stream != nil { result["streamSettings"] = stream }
+	return result
+}
+
+func egressProxyStreamSettings(proxy *model.EgressProxyConfig) M {
+	if !proxy.TLSEnabled && proxy.Config["reality"] == nil { return nil }
+	network := egressStringValue(proxy.Config, "network"); if network == "" { network = "tcp" }
+	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
+		settings := M{"show": false, "publicKey": reality["public_key"], "shortId": reality["short_id"]}
+		if name := proxy.TLSServerName; name != "" { settings["serverName"] = name }
+		return M{"network": network, "security": "reality", "realitySettings": settings}
+	}
+	settings := M{"allowInsecure": proxy.AllowInsecure}
+	if name := proxy.TLSServerName; name != "" { settings["serverName"] = name }
+	return M{"network": network, "security": "tls", "tlsSettings": settings}
+}
+
+func egressStringValue(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
+	if proxy == nil { return }
+	routing, ok := cfg["routing"].(M); if !ok { routing = M{}; cfg["routing"] = routing }
+	rules, _ := routing["rules"].([]M)
+	// This is deliberately last: safety/audit rules retain their priority and
+	// only traffic not matched by them uses the residential/provider egress.
+	rules = append(rules, M{"type": "field", "network": "tcp,udp", "outboundTag": model.EgressProxyTag(proxy.ID)})
+	routing["rules"] = rules
 }
 
 // applyRealityRuntimeOverride keeps the panel destination untouched for
