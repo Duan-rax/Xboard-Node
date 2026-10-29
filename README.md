@@ -7,14 +7,33 @@ Node backend for [Xboard](https://github.com/cedar2025/Xboard). Supports `sing-b
 ## Features
 
 - Protocols: V2Ray family, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS
-- Sync: WebSocket push + REST polling dual channel
+- Sync: WebSocket push + low-frequency REST reconciliation
 - User controls: speed limit, device limit, alive-IP tracking, hot update
+- Managed egress: bind a panel-managed SOCKS5, HTTP, Shadowsocks, VLESS or
+  Trojan endpoint to a node and hot-swap it without restarting the kernel
 - Deploy modes: node mode, machine mode, standalone mode
 - Multi-instance: single process binding multiple panels / nodes
 
 ## Changes in this fork
 
-This fork keeps the upstream node behavior and adds an explicit Xray Reality local-fallback path.
+This fork keeps upstream node behavior and adds production-tested changes for
+managed egress, configuration acknowledgement and Xray Reality fallback.
+
+### Managed node egress
+
+- Profiles are configured and bound from the Xboard **Egress Management** page.
+  Credentials are delivered only through the authenticated node control plane.
+- Binding, changing or removing an egress profile creates or replaces the
+  `panel-egress-*` outbound while the listener and connection tracker stay alive.
+- Existing private-network, panel and custom rules still run first. The egress
+  catch-all rule applies only to traffic that would otherwise reach `direct`.
+- Nodes acknowledge the applied egress ID and timestamp, allowing the panel to
+  show whether a change is confirmed or still waiting for the node.
+- If WebSocket delivery is missed, REST reconciliation recovers the latest
+  configuration instead of leaving an indefinitely stale route.
+
+See [managed egress](docs/egress-management.md) for compatibility and rollout
+details.
 
 ### Xray Reality local fallback
 
@@ -34,7 +53,9 @@ kernel:
 
 ### Fork Release and installer
 
-- Linux `amd64` and `arm64` binaries are published in this repository's `dev` Release.
+- Linux `amd64` and `arm64` binaries are published as immutable GitHub Releases.
+- Release binaries are built natively on SGP and uploaded with checksums. A
+  branch push performs verification only and never replaces a production image.
 - The installer downloads from `Duan-rax/Xboard-Node` by default.
 - The deployment guides verify the downloaded candidate, installed binary, and running process separately so that an old or upstream binary is not mistaken for the fork build.
 
@@ -48,15 +69,16 @@ kernel:
 ### Docker
 
 ```bash
+docker build -t xboard-node:local .
 docker run -d --restart=always --network=host \
   -e apiHost=https://panel.com -e apiKey=TOKEN -e nodeID=1 \
-  ghcr.io/cedar2025/xboard-node:latest
+  xboard-node:local
 ```
 
 ### Docker Compose
 
 ```bash
-git clone -b compose --depth 1 https://github.com/cedar2025/xboard-node.git
+git clone -b compose --depth 1 https://github.com/Duan-rax/Xboard-Node.git
 cd xboard-node
 vim config/config.yml   # set panel.url / token / node_id
 docker compose up -d
@@ -66,11 +88,11 @@ docker compose up -d
 
 ```bash
 # Node mode
-curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh | \
   sudo bash -s -- --mode node --panel https://panel.example.com --token TOKEN --node-id 1
 
 # Machine mode
-curl -fsSL https://raw.githubusercontent.com/cedar2025/xboard-node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 ```
 
@@ -99,6 +121,8 @@ Legacy single-panel config is fully compatible. Appending bindings auto-migrates
 - Fresh Linux deployment: [docs/fresh-deployment.md](docs/fresh-deployment.md)
 - Existing Linux deployment upgrade: [docs/existing-deployment-upgrade.md](docs/existing-deployment-upgrade.md)
 - Machine mode automatic traffic audit: [docs/machine-traffic-audit.md](docs/machine-traffic-audit.md)
+- Managed egress compatibility and hot reload: [docs/egress-management.md](docs/egress-management.md)
+- Release process: [docs/release-process.md](docs/release-process.md)
 
 ## License
 

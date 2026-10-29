@@ -44,7 +44,7 @@ if [ -z "$ARCH" ]; then
   echo "停止：未下载任何文件。"
 else
   INSTALL_DIR=/root/xboard-node-install
-  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
+  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/latest/download
 
   install -d -m 0700 "$INSTALL_DIR"
   cd "$INSTALL_DIR"

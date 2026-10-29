@@ -592,7 +592,7 @@ render_service() {
     cat >"$TMP_DIR/${SERVICE_NAME}" <<EOF_UNIT
 [Unit]
 Description=Xboard Node Backend
-Documentation=https://github.com/cedar2025/xboard-node
+Documentation=https://github.com/Duan-rax/Xboard-Node
 After=network-online.target
 Wants=network-online.target
 

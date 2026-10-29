@@ -68,7 +68,7 @@ if [ -z "$ARCH" ]; then
   echo "停止：未下载任何文件。"
 else
   UPGRADE_DIR=/root/xboard-node-upgrade
-  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/download/dev
+  RELEASE_BASE=https://github.com/Duan-rax/Xboard-Node/releases/latest/download
 
   install -d -m 0700 "$UPGRADE_DIR"
   cd "$UPGRADE_DIR"
