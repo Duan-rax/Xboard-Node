@@ -604,7 +604,7 @@ func TestBuildConfig_EgressProxySetsFinalOutbound(t *testing.T) {
 		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
 		EgressProxy: &panel.EgressProxyConfig{ID: 42, Protocol: "socks5", Host: "198.51.100.8", Port: 1080, Username: "u", Password: "p"},
 	}
-	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, testNodeSpec(nc), testUsers, kernel.TLSCert{})
 	if cfg["route"].(M)["final"] != "panel-egress-42" {
 		t.Fatalf("route final = %v, want panel-egress-42", cfg["route"].(M)["final"])
 	}
