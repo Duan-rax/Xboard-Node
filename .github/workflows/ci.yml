@@ -6,7 +6,7 @@ on:
     branches: ['**']
     tags: ["v*"]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, dev]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
