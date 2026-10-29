@@ -200,7 +200,7 @@ func TestApplyUserDeltaAddPreparesLimiterBeforeKernelUpdate(t *testing.T) {
 	}
 }
 
-func TestApplyChangesRestartsKernelWhenEgressChanges(t *testing.T) {
+func TestApplyChangesHotReloadsKernelWhenEgressChanges(t *testing.T) {
 	k := &fakeKernel{running: true}
 	s := newTestService(k)
 	oldConfig := &model.NodeSpec{Protocol: "vless"}
@@ -219,11 +219,11 @@ func TestApplyChangesRestartsKernelWhenEgressChanges(t *testing.T) {
 
 	s.applyChanges(context.Background(), true, false)
 
-	if k.startCalls != 1 {
-		t.Fatalf("Start call count = %d, want 1", k.startCalls)
+	if k.startCalls != 0 {
+		t.Fatalf("Start call count = %d, want 0", k.startCalls)
 	}
-	if k.reloadCalls != 0 {
-		t.Fatalf("Reload call count = %d, want 0", k.reloadCalls)
+	if k.reloadCalls != 1 {
+		t.Fatalf("Reload call count = %d, want 1", k.reloadCalls)
 	}
 }
 

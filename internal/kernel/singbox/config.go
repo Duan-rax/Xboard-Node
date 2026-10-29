@@ -128,11 +128,19 @@ func egressStringValue(values map[string]any, key string) string {
 }
 
 func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
-	if proxy == nil { return }
-	route, ok := cfg["route"].(M); if !ok { route = M{}; cfg["route"] = route }
-	// Custom block/audit rules still run first; unmatched traffic goes to the
-	// selected administrator-managed egress.
-	route["final"] = model.EgressProxyTag(proxy.ID)
+	if proxy == nil {
+		return
+	}
+	route, ok := cfg["route"].(M)
+	if !ok {
+		route = M{}
+		cfg["route"] = route
+	}
+	rules, _ := route["rules"].([]M)
+	// Keep the configured final outbound intact. The egress is a catch-all
+	// rule after custom/audit/panel rules so hot reload updates it reliably.
+	rules = append(rules, M{"outbound": model.EgressProxyTag(proxy.ID)})
+	route["rules"] = rules
 }
 
 // applyAuditClashAPI runs after custom_config merging so a shared custom

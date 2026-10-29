@@ -599,14 +599,19 @@ func TestBuildConfig_OutboundPriority(t *testing.T) {
 	}
 }
 
-func TestBuildConfig_EgressProxySetsFinalOutbound(t *testing.T) {
+func TestBuildConfig_EgressProxyAddsCatchAllRule(t *testing.T) {
 	nc := &panel.NodeConfig{
 		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
 		EgressProxy: &panel.EgressProxyConfig{ID: 42, Protocol: "socks5", Host: "198.51.100.8", Port: 1080, Username: "u", Password: "p"},
 	}
 	cfg := buildConfig(config.KernelConfig{Type: "singbox", LogLevel: "warn"}, testNodeSpec(nc), testUsers, kernel.TLSCert{})
-	if cfg["route"].(M)["final"] != "panel-egress-42" {
-		t.Fatalf("route final = %v, want panel-egress-42", cfg["route"].(M)["final"])
+	route := cfg["route"].(M)
+	if route["final"] != "direct" {
+		t.Fatalf("route final = %v, want direct", route["final"])
+	}
+	rules := route["rules"].([]M)
+	if len(rules) == 0 || rules[len(rules)-1]["outbound"] != "panel-egress-42" {
+		t.Fatalf("last route rule = %#v, want panel-egress-42", rules)
 	}
 	var found M
 	for _, outbound := range cfg["outbounds"].([]M) {
