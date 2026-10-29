@@ -53,9 +53,11 @@ kernel:
 
 ### Fork Release and installer
 
-- Linux `amd64` and `arm64` binaries are published as immutable GitHub Releases.
-- Release binaries are built natively on SGP and uploaded with checksums. A
-  branch push performs verification only and never replaces a production image.
+- Linux `amd64` and `arm64` binaries are published as immutable GitHub Releases
+  by tag-triggered GitHub Actions.
+- GitHub Actions builds amd64/arm64 binaries, checksums and a
+  multi-architecture container. A branch push performs verification only and
+  never replaces a production image.
 - The installer downloads from `Duan-rax/Xboard-Node` by default.
 - The deployment guides verify the downloaded candidate, installed binary, and running process separately so that an old or upstream binary is not mistaken for the fork build.
 

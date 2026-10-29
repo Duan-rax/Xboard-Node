@@ -3,6 +3,16 @@
 All notable fork changes are recorded here. Release dates use the
 `Asia/Singapore` timezone.
 
+## 2026.10.30.1
+
+Release: `v2026.10.30.1`
+
+- Switched official binary and container releases to tag-triggered GitHub
+  Actions.
+- Release tags now build amd64/arm64 binaries, upload checksums, publish a
+  multi-architecture GHCR image and create the GitHub Release automatically.
+- Branch pushes remain verification-only and do not replace `latest`.
+
 ## 2026.10.30
 
 Release: `v2026.10.30`
