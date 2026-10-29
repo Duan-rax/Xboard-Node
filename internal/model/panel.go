@@ -45,6 +45,17 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		}
 	}
 
+	var egressProxy *EgressProxyConfig
+	if nc.EgressProxy != nil {
+		egressProxy = &EgressProxyConfig{
+			ID: nc.EgressProxy.ID, Name: nc.EgressProxy.Name, Protocol: nc.EgressProxy.Protocol,
+			Host: nc.EgressProxy.Host, Port: nc.EgressProxy.Port, Username: nc.EgressProxy.Username,
+			Password: nc.EgressProxy.Password, TLSEnabled: nc.EgressProxy.TLSEnabled,
+			TLSServerName: nc.EgressProxy.TLSServerName, AllowInsecure: nc.EgressProxy.AllowInsecure,
+			Config: cloneAnyMap(nc.EgressProxy.Config),
+		}
+	}
+
 	routes := make([]RouteRule, 0, len(nc.Routes))
 	for _, route := range nc.Routes {
 		routes = append(routes, RouteRule{
@@ -98,6 +109,7 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		CustomOutbounds:     outbounds,
 		CustomRoutes:        cloneMapSlice(nc.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		EgressProxy:         egressProxy,
 		CertConfig:          certCfg,
 		AutoTLS:             nc.AutoTLS,
 		Domain:              nc.Domain,
@@ -184,6 +196,17 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		}
 	}
 
+	var egressProxy *panel.EgressProxyConfig
+	if n.EgressProxy != nil {
+		egressProxy = &panel.EgressProxyConfig{
+			ID: n.EgressProxy.ID, Name: n.EgressProxy.Name, Protocol: n.EgressProxy.Protocol,
+			Host: n.EgressProxy.Host, Port: n.EgressProxy.Port, Username: n.EgressProxy.Username,
+			Password: n.EgressProxy.Password, TLSEnabled: n.EgressProxy.TLSEnabled,
+			TLSServerName: n.EgressProxy.TLSServerName, AllowInsecure: n.EgressProxy.AllowInsecure,
+			Config: cloneAnyMap(n.EgressProxy.Config),
+		}
+	}
+
 	routes := make([]panel.RouteRule, 0, len(n.Routes))
 	for _, route := range n.Routes {
 		routes = append(routes, panel.RouteRule{
@@ -237,6 +260,7 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		CustomOutbounds:     outbounds,
 		CustomRoutes:        cloneMapSlice(n.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
+		EgressProxy:         egressProxy,
 		CertConfig:          certCfg,
 		AutoTLS:             n.AutoTLS,
 		Domain:              n.Domain,

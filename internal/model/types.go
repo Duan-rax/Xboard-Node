@@ -15,6 +15,7 @@ type NodeSpec struct {
 	CustomOutbounds  []OutboundConfig
 	CustomRoutes     []map[string]any
 	CustomRouteRules []CustomRouteRule
+	EgressProxy      *EgressProxyConfig
 	CertConfig       *config.CertConfig
 	AutoTLS          bool
 	Domain           string
@@ -45,6 +46,20 @@ type NodeSpec struct {
 
 	Multiplex           *MultiplexConfig
 	AcceptProxyProtocol bool
+}
+
+type EgressProxyConfig struct {
+	ID            int
+	Name          string
+	Protocol      string
+	Host          string
+	Port          int
+	Username      string
+	Password      string
+	TLSEnabled    bool
+	TLSServerName string
+	AllowInsecure bool
+	Config        map[string]any
 }
 
 type OutboundConfig struct {

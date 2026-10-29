@@ -29,6 +29,17 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 		return fmt.Errorf("validate outbound tags: %w", err)
 	}
 	additionalTags := additionalTagNames(additionalOutboundSources)
+	if err := validateEgressProxy(n.EgressProxy, kernelType, additionalTags); err != nil {
+		return err
+	}
+	if n.EgressProxy != nil {
+		for _, outbound := range n.CustomOutbounds {
+			if strings.EqualFold(strings.TrimSpace(outbound.Tag), EgressProxyTag(n.EgressProxy.ID)) {
+				return fmt.Errorf("validate egress proxy: generated tag %q conflicts with custom_outbounds", EgressProxyTag(n.EgressProxy.ID))
+			}
+		}
+		additionalTags = append(additionalTags, EgressProxyTag(n.EgressProxy.ID))
+	}
 	availableTags := buildAvailableOutboundTags(n.CustomOutbounds, additionalTags)
 	if err := ValidateCustomOutboundsForKernel(n.CustomOutbounds, kernelType, additionalTags); err != nil {
 		return fmt.Errorf("validate custom outbounds: %w", err)
@@ -40,6 +51,47 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 		return err
 	}
 	return nil
+}
+
+func EgressProxyTag(id int) string {
+	return fmt.Sprintf("panel-egress-%d", id)
+}
+
+func validateEgressProxy(proxy *EgressProxyConfig, kernelType string, existingTags []string) error {
+	if proxy == nil {
+		return nil
+	}
+	if proxy.ID <= 0 || strings.TrimSpace(proxy.Host) == "" || proxy.Port < 1 || proxy.Port > 65535 {
+		return fmt.Errorf("validate egress proxy: id, host and port (1-65535) are required")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(proxy.Protocol))
+	if !map[string]bool{"socks5": true, "http": true, "shadowsocks": true, "vless": true, "trojan": true}[protocol] {
+		return fmt.Errorf("validate egress proxy: protocol %q is not supported", proxy.Protocol)
+	}
+	if protocol == "shadowsocks" && strings.TrimSpace(stringValue(proxy.Config, "method")) == "" {
+		return fmt.Errorf("validate egress proxy: shadowsocks requires config.method")
+	}
+	if protocol == "vless" && strings.TrimSpace(stringValue(proxy.Config, "uuid")) == "" {
+		return fmt.Errorf("validate egress proxy: vless requires config.uuid")
+	}
+	if protocol == "trojan" && strings.TrimSpace(proxy.Password) == "" {
+		return fmt.Errorf("validate egress proxy: trojan requires a password")
+	}
+	tag := EgressProxyTag(proxy.ID)
+	for _, existingTag := range existingTags {
+		if strings.EqualFold(existingTag, tag) {
+			return fmt.Errorf("validate egress proxy: generated tag %q conflicts with an existing outbound", tag)
+		}
+	}
+	return nil
+}
+
+func stringValue(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	value, _ := values[key].(string)
+	return value
 }
 
 // singboxUnsupportedTransports lists transport types that sing-box does not support.

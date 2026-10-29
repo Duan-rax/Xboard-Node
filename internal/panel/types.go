@@ -99,6 +99,7 @@ type NodeConfig struct {
 	CustomOutbounds  []OutboundConfig  `json:"custom_outbounds,omitempty"`
 	CustomRoutes     []map[string]any  `json:"custom_routes,omitempty"`
 	CustomRouteRules []CustomRouteRule `json:"custom_route_rules,omitempty"`
+	EgressProxy      *EgressProxyConfig `json:"egress_proxy,omitempty"`
 
 	// Certificate settings (Xboard extension)
 	CertConfig *CertConfig `json:"cert_config,omitempty"`
@@ -143,6 +144,24 @@ type NodeConfig struct {
 
 	// Proxy Protocol (supports both top-level and networkSettings for compatibility)
 	AcceptProxyProtocol bool `json:"accept_proxy_protocol,omitempty"`
+}
+
+// EgressProxyConfig is an administrator-managed, node-wide default outbound.
+// It is intentionally separate from custom_outbounds: the panel sends one
+// kernel-neutral description and the node renders the appropriate native
+// Xray or sing-box outbound.
+type EgressProxyConfig struct {
+	ID              int                    `json:"id"`
+	Name            string                 `json:"name"`
+	Protocol        string                 `json:"protocol"`
+	Host            string                 `json:"host"`
+	Port            int                    `json:"port"`
+	Username        string                 `json:"username,omitempty"`
+	Password        string                 `json:"password,omitempty"`
+	TLSEnabled      bool                   `json:"tls_enabled,omitempty"`
+	TLSServerName   string                 `json:"tls_server_name,omitempty"`
+	AllowInsecure   bool                   `json:"allow_insecure,omitempty"`
+	Config          map[string]interface{} `json:"config,omitempty"`
 }
 
 // GetProxyProtocol returns true if AcceptProxyProtocol is set either at node level
