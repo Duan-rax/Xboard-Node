@@ -220,12 +220,9 @@ func (s *Service) Run(ctx context.Context) error {
 			s.reportDevices()
 
 		case <-pullTicker.C:
-			// When WebSocket is connected, skip REST polling entirely.
-			// Config/user updates arrive via WS push.
-			if s.wsClient != nil && s.wsClient.IsConnected() {
-				continue
-			}
-			nlog.Core().Debug("polling from API (ws not connected)")
+			// WebSocket remains the low-latency path, while REST polling is a
+			// consistency fallback so a missed push cannot leave stale config.
+			nlog.Core().Debug("polling from API (consistency check)")
 			s.pullViaAPIAsync(ctx)
 
 		case result := <-s.pullResults:
