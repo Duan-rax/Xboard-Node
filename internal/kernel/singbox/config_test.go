@@ -733,6 +733,9 @@ func TestBuildRoutes_WithCustomRules(t *testing.T) {
 	}
 
 	assertMapValue(t, allRules[0], "action", "sniff")
+	if got := allRules[0]["network"].([]string); len(got) != 1 || got[0] != "tcp" {
+		t.Fatalf("sniff rule must be TCP-only, got %v", got)
+	}
 	assertMapValue(t, allRules[3], "action", "reject")
 	if _, ok := allRules[3]["domain_suffix"]; !ok {
 		t.Error("domain rule should use domain_suffix")
@@ -914,6 +917,9 @@ func TestBuildRoutes_GeoCollectionsAndNativeRuleSet(t *testing.T) {
 	compiled := route["rules"].([]M)
 	if compiled[0]["action"] != "sniff" {
 		t.Fatalf("geo site rules require sniffing: %#v", compiled[0])
+	}
+	if got := compiled[0]["network"].([]string); len(got) != 1 || got[0] != "tcp" {
+		t.Fatalf("geo sniff rule must be TCP-only, got %v", got)
 	}
 	for _, item := range compiled[3:] {
 		if item["action"] != "reject" {

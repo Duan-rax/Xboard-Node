@@ -19,6 +19,8 @@ All notable fork changes are recorded here. Release dates use the
   reports for reliable applied-config confirmation.
 - Restore the last-known-good config/users when a reload and replacement kernel
   start both fail instead of leaving partially applied routing state.
+- Limit automatic Sing-box sniffing to TCP to avoid an embedded AnyTLS/UDP
+  packet nil-buffer crash while preserving UDP network/port/CIDR routing.
 
 ### Fixed
 

@@ -297,7 +297,14 @@ func buildRoutesWithSource(panelRoutes []model.RouteRule, customRules []model.Cu
 		return panelRoutes[i].Priority < panelRoutes[j].Priority
 	})
 	if kernel.NeedsSniff(panelRoutes, customRules) {
-		rules = append(rules, M{"action": "sniff", "timeout": "300ms"})
+		// The embedded sing-box build currently has an AnyTLS/UDP packet
+		// nil-buffer crash after a route sniff action. Limit sniffing to TCP;
+		// UDP routing still uses network, port, CIDR and source matchers.
+		rules = append(rules, M{
+			"network": []string{"tcp"},
+			"action":  "sniff",
+			"timeout": "300ms",
+		})
 	}
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
