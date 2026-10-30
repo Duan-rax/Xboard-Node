@@ -194,26 +194,24 @@ func TestWSClient_ReconnectOnDisconnect(t *testing.T) {
 
 	go ws.Run(ctx)
 
-	// Wait for reconnection
+	// Wait for the second connection to finish its auth handshake. The server
+	// increments connectCount before auth.success is processed by the client,
+	// so checking only connectCount races with IsConnected().
 	deadline := time.After(4 * time.Second)
 	for {
 		mu.Lock()
 		n := connectCount
 		mu.Unlock()
-		if n >= 2 {
+		if n >= 2 && ws.IsConnected() {
 			break
 		}
 		select {
 		case <-deadline:
 			mu.Lock()
-			t.Fatalf("expected at least 2 connections, got %d", connectCount)
+			t.Fatalf("reconnect did not become ready: connections=%d connected=%t", connectCount, ws.IsConnected())
 			mu.Unlock()
 		case <-time.After(100 * time.Millisecond):
 		}
-	}
-
-	if !ws.IsConnected() {
-		t.Error("expected IsConnected() = true after reconnect")
 	}
 }
 
