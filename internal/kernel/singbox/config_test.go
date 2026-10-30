@@ -920,6 +920,19 @@ func TestBuildRoutes_GeoCollectionsAndNativeRuleSet(t *testing.T) {
 			t.Fatalf("geo block must use reject action: %#v", item)
 		}
 	}
+	if len(compiled) != 6 {
+		t.Fatalf("compiled geo rule count: got %d, want 6: %#v", len(compiled), compiled)
+	}
+	if got := compiled[3]["rule_set"].([]string); len(got) != 1 || got[0] != "geosite-category-ads-all" {
+		t.Fatalf("geosite matcher must reference its generated definition: %#v", compiled[3])
+	}
+	ipAlternatives := compiled[4]["rules"].([]M)
+	if got := ipAlternatives[1]["rule_set"].([]string); len(got) != 1 || got[0] != "geoip-cn" {
+		t.Fatalf("geoip matcher must reference its generated definition: %#v", compiled[4])
+	}
+	if got := compiled[5]["rule_set"].([]string); len(got) != 1 || got[0] != "cn_ip" {
+		t.Fatalf("native rule-set matcher changed unexpectedly: %#v", compiled[5])
+	}
 	definitions := route["rule_set"].([]M)
 	if len(definitions) != 2 {
 		t.Fatalf("automatic definitions: got %d, want 2: %#v", len(definitions), definitions)
