@@ -465,7 +465,7 @@ func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventTyp
 	}
 	metadata := map[string]any{"kernel": "sing-box", "inbound": conn.Metadata.Inbound, "rule": conn.Rule, "type": conn.Metadata.Type, "user": user, "user_match": matchMethod, "clash_connection_id": conn.ID}
 	routeID, routeTag := panelRouteIdentity(conn.Rule)
-	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID, start), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, RouteID: routeID, RouteTag: routeTag, RouteSource: "kernel", Outbound: strings.Join(conn.Chains, " > "), Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
+	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, RouteID: routeID, RouteTag: routeTag, RouteSource: "kernel", Outbound: strings.Join(conn.Chains, " > "), Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
 }
 
 func panelRouteIdentity(rule string) (*int64, string) {
@@ -540,6 +540,19 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 			c.singBoxRecentUsers[singBoxDestinationKey(unit, destination)] = identity
 		}
 		c.mu.Unlock()
+		for _, target := range c.targetsForJournalUnit(unit) {
+			event := singBoxIdentityEvent(
+				target,
+				user,
+				source,
+				identityMatch[4],
+				identityMatch[5],
+				connectionID,
+			)
+			if err := c.post(event); err != nil {
+				log.Printf("sing-box %s identity event: %v", target.NodeID, err)
+			}
+		}
 		return
 	}
 	contextMatch := singBoxContextID.FindStringSubmatch(line)
@@ -579,6 +592,54 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 		if item.UpdatedAt.Before(time.Now().Add(-2 * time.Minute)) {
 			delete(c.singBoxContexts, key)
 		}
+	}
+}
+
+func (c *Collector) targetsForJournalUnit(unit string) []Target {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	targets := make([]Target, 0, 1)
+	seen := make(map[string]bool)
+	for _, managed := range c.startedTargets {
+		if managed.target.SingBoxJournalUnit != unit {
+			continue
+		}
+		key := targetKey(managed.target)
+		if !seen[key] {
+			seen[key] = true
+			targets = append(targets, managed.target)
+		}
+	}
+	return targets
+}
+
+func singBoxIdentityEvent(target Target, user, source, destination, domain, connectionID string) Event {
+	visibleDestination := destination
+	if domain != "" {
+		visibleDestination = domain
+		if _, port, err := net.SplitHostPort(destination); err == nil && port != "" {
+			visibleDestination = net.JoinHostPort(domain, port)
+		}
+	}
+	metadata := map[string]any{
+		"kernel":              "sing-box",
+		"user":                user,
+		"user_match":          "connection_id",
+		"clash_connection_id": connectionID,
+		"domain":              domain,
+		"identity_only":       true,
+	}
+	return Event{
+		EventID:      eventHash(target.NodeID, connectionID, "identity"),
+		ConnectionID: "singbox-" + eventHash(target.NodeID, connectionID),
+		EventType:    "start",
+		UserID:       parseUserID(user),
+		NodeID:       target.NodeID,
+		ClientSource: source,
+		OccurredAt:   time.Now().UTC(),
+		Action:       "observe",
+		Destination:  visibleDestination,
+		Metadata:     metadata,
 	}
 }
 
@@ -690,7 +751,7 @@ func parseXrayLine(target Target, line string) *Event {
 	if traffic := xrayTraffic.FindStringSubmatch(line); len(traffic) == 3 {
 		upload, _ = strconv.ParseUint(traffic[1], 10, 64)
 		download, _ = strconv.ParseUint(traffic[2], 10, 64)
-		eventType = "completed"
+		eventType = "close"
 		metadata["byte_counters"] = true
 	}
 	lineHash := eventHash(target.NodeID, line)

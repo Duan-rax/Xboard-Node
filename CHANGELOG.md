@@ -7,7 +7,9 @@ All notable fork changes are recorded here. Release dates use the
 
 - Add Clash API connection UUIDs to sing-box audit identity logs so concurrent
   connections with the same source or destination cannot be attributed to the
-  wrong user. Destination matching remains a legacy fallback only.
+  wrong user. The identity log also creates an immediate zero-byte start event
+  so short connections are not lost between Clash API polls. Destination
+  matching remains a legacy fallback only.
 - Build against a pinned Cedar Xray commit with access-log byte counters
   applied locally, and parse `up=<bytes> down=<bytes>` at connection teardown
   while retaining compatibility with legacy access-log lines.

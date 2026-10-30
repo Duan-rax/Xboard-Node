@@ -107,6 +107,10 @@ destination matching remains only as a legacy fallback for older Node builds,
 so two concurrent connections to the same destination cannot overwrite each
 other's user when both sides provide the stable connection UUID.
 
+The identity line also creates a zero-byte connection-start event immediately.
+This preserves short-lived connections that finish between Clash API polling
+intervals; later sampled bytes reuse the same panel connection ID.
+
 ## Xray
 
 Xray 不使用 Clash API。Machine 自动清单只包含 sing-box Node；Xray 网站连接审计仍通过 `xray_access_log` 的静态 collector target 完成。

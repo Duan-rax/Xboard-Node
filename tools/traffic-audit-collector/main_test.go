@@ -114,6 +114,29 @@ func TestConnectionIDWinsWhenSourceAndDestinationAreAmbiguous(t *testing.T) {
 	}
 }
 
+func TestIdentityLogCreatesLinkedConnectionWithoutClashSample(t *testing.T) {
+	event := singBoxIdentityEvent(
+		Target{NodeID: "21"},
+		"@7",
+		"203.0.113.8:52144",
+		"1.1.1.1:443",
+		"example.com",
+		"clash-connection-7",
+	)
+	if event.UserID == nil || *event.UserID != 7 {
+		t.Fatalf("user = %v", event.UserID)
+	}
+	if event.ConnectionID != "singbox-"+eventHash("21", "clash-connection-7") {
+		t.Fatalf("connection ID = %q", event.ConnectionID)
+	}
+	if event.Destination != "example.com:443" {
+		t.Fatalf("destination = %q", event.Destination)
+	}
+	if event.Metadata["user_match"] != "connection_id" || event.Metadata["clash_connection_id"] != "clash-connection-7" {
+		t.Fatalf("metadata = %#v", event.Metadata)
+	}
+}
+
 func TestPanelRouteIdentity(t *testing.T) {
 	id, tag := panelRouteIdentity("panel-route-38")
 	if id == nil || *id != 38 || tag != "panel-route-38" {
@@ -133,7 +156,7 @@ func TestParseXrayLineWithConnectionBytes(t *testing.T) {
 	if event == nil {
 		t.Fatal("expected Xray event")
 	}
-	if event.EventType != "completed" {
+	if event.EventType != "close" {
 		t.Fatalf("event type = %q", event.EventType)
 	}
 	if event.UserID == nil || *event.UserID != 7 {
