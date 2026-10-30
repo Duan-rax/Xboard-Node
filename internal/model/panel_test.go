@@ -30,6 +30,25 @@ func TestNodeSpecFromPanelValidated(t *testing.T) {
 		}
 	})
 
+	t.Run("preserves config fingerprint", func(t *testing.T) {
+		node, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
+			Protocol:       "shadowsocks",
+			ServerPort:     8388,
+			ConfigRevision: 108,
+			ConfigHash:     "abc123",
+		}, config.KernelConfig{Type: "singbox"})
+		if err != nil {
+			t.Fatalf("NodeSpecFromPanelValidated: %v", err)
+		}
+		if node.ConfigRevision != 108 || node.ConfigHash != "abc123" {
+			t.Fatalf("unexpected config fingerprint: %#v", node)
+		}
+		roundTrip := node.ToPanel()
+		if roundTrip.ConfigRevision != 108 || roundTrip.ConfigHash != "abc123" {
+			t.Fatalf("fingerprint lost on round trip: %#v", roundTrip)
+		}
+	})
+
 	t.Run("invalid custom outbounds", func(t *testing.T) {
 		_, err := NodeSpecFromPanelValidated(&panel.NodeConfig{
 			Protocol:   "shadowsocks",

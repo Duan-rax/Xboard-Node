@@ -114,6 +114,8 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 	}
 
 	return &NodeSpec{
+		ConfigRevision:      nc.ConfigRevision,
+		ConfigHash:          nc.ConfigHash,
 		Protocol:            nc.Protocol,
 		ListenIP:            nc.ListenIP,
 		ServerPort:          nc.ServerPort,
@@ -281,6 +283,8 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 	}
 
 	return &panel.NodeConfig{
+		ConfigRevision:      n.ConfigRevision,
+		ConfigHash:          n.ConfigHash,
 		Protocol:            n.Protocol,
 		ListenIP:            n.ListenIP,
 		ServerPort:          n.ServerPort,

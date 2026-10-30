@@ -78,6 +78,27 @@ structured `criteria` object:
 - `disabled` rules are ignored.
 - Routes without `criteria` continue to use the legacy `match` array.
 
+## Applied Config Fingerprint
+
+The panel may include `config_revision` and `config_hash` on the node control
+config. The node preserves both values and returns them in every status report:
+
+```json
+{
+  "config_revision": 108,
+  "config_hash": "sha256...",
+  "config_applied_at": 1793366400
+}
+```
+
+The panel should mark a change as applied only when both values match the
+expected generated config. A status report from an older revision can then no
+longer produce a false success after reconnect or delayed delivery.
+
+If hot reload or a fallback kernel restart rejects the new configuration, the
+node restores its in-memory last-known-good config and users. If that restart
+also fails, the kernel is stopped instead of continuing with unknown state.
+
 ## Kernel Compatibility
 
 | Feature | Xray | Sing-box |

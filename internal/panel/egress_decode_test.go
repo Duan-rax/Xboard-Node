@@ -38,14 +38,14 @@ func TestDecodeWeakRawIncludesStructuredRoutes(t *testing.T) {
 		"protocol": "vless",
 		"routes": []interface{}{
 			map[string]interface{}{
-				"id":         9,
-				"remarks":    "structured",
-				"match":      []interface{}{},
-				"criteria":   map[string]interface{}{"domain_suffixes": []interface{}{"example.com"}},
-				"match_mode": "all",
-				"priority":   15,
-				"disabled":   true,
-				"action":     "proxy",
+				"id":           9,
+				"remarks":      "structured",
+				"match":        []interface{}{},
+				"criteria":     map[string]interface{}{"domain_suffixes": []interface{}{"example.com"}},
+				"match_mode":   "all",
+				"priority":     15,
+				"disabled":     true,
+				"action":       "proxy",
 				"action_value": "warp",
 			},
 		},
@@ -64,5 +64,22 @@ func TestDecodeWeakRawIncludesStructuredRoutes(t *testing.T) {
 	}
 	if got := route.Criteria.DomainSuffixes[0]; got != "example.com" {
 		t.Fatalf("unexpected route criteria: %#v", route.Criteria)
+	}
+}
+
+func TestDecodeWeakRawIncludesConfigFingerprint(t *testing.T) {
+	raw := map[string]interface{}{
+		"protocol":        "vless",
+		"server_port":     443,
+		"config_revision": int64(108),
+		"config_hash":     "abc123",
+	}
+
+	var config NodeConfig
+	if err := decodeWeakRaw(raw, &config); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if config.ConfigRevision != 108 || config.ConfigHash != "abc123" {
+		t.Fatalf("unexpected config fingerprint: %#v", config)
 	}
 }

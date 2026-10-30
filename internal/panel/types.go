@@ -85,6 +85,8 @@ type MachineBaseConfig struct {
 type NodeConfig struct {
 	// NodeID is populated in machine-mode WS events for routing.
 	NodeID          int                    `json:"node_id,omitempty"`
+	ConfigRevision  int64                  `json:"config_revision,omitempty"`
+	ConfigHash      string                 `json:"config_hash,omitempty"`
 	Protocol        string                 `json:"protocol"`
 	ListenIP        string                 `json:"listen_ip"`
 	ServerPort      int                    `json:"server_port"`

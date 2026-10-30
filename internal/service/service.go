@@ -919,12 +919,17 @@ func (s *Service) applyChanges(ctx context.Context, configChanged, usersChanged 
 		return
 	}
 
+	previousConfig := s.appliedState.Config
+	previousUsers := append([]model.UserSpec(nil), s.appliedState.Users...)
+
 	// If config changed, delegate to kernel.Reload. The kernel implementation
 	// decides whether to hot-swap users, reconstruct inbounds, or restart itself.
 	if configChanged && s.kernel.IsRunning() {
 		if err := s.kernel.Reload(s.lastConfig, s.lastUsers, s.cert.TLSCert()); err != nil {
 			nlog.Core().Warn(fmt.Sprintf("reload failed, restarting: %v", err))
-			s.startKernel(s.lastConfig, s.lastUsers)
+			if !s.startKernel(s.lastConfig, s.lastUsers) {
+				s.restoreLastKnownGood(previousConfig, previousUsers)
+			}
 		} else {
 			s.appliedState.Config = s.lastConfig
 			s.appliedState.Users = s.lastUsers
@@ -936,6 +941,28 @@ func (s *Service) applyChanges(ctx context.Context, configChanged, usersChanged 
 	} else if !s.kernel.IsRunning() {
 		s.startKernel(s.lastConfig, s.lastUsers)
 	}
+}
+
+func (s *Service) restoreLastKnownGood(config *model.NodeSpec, users []model.UserSpec) bool {
+	if config == nil || len(users) == 0 {
+		nlog.Core().Error("no last-known-good config available; stopping kernel")
+		s.kernel.Stop()
+		return false
+	}
+	nlog.Core().Warn("new config failed, restoring last-known-good config")
+	if !s.startKernel(config, users) {
+		nlog.Core().Error("last-known-good restart failed; stopping kernel")
+		s.kernel.Stop()
+		return false
+	}
+	s.metricsMu.Lock()
+	s.lastConfig = config
+	s.lastUsers = append([]model.UserSpec(nil), users...)
+	s.lastConfigHash = computeConfigHash(config)
+	s.lastUserHash = computeUserHash(users)
+	s.metricsMu.Unlock()
+	s.markConfigApplied()
+	return true
 }
 
 func (s *Service) trackAndEnforce(ctx context.Context) {
@@ -1047,6 +1074,13 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	}
 	m["config_applied_at"] = configAppliedAt.Unix()
 	m["egress_proxy_id"] = egressProxyID
+	if lastConfig != nil {
+		m["config_revision"] = lastConfig.ConfigRevision
+		m["config_hash"] = lastConfig.ConfigHash
+	} else {
+		m["config_revision"] = 0
+		m["config_hash"] = ""
+	}
 
 	// Speed
 	m["inbound_speed"] = s.tracker.InboundSpeed()

@@ -3,6 +3,8 @@ package model
 import "github.com/cedar2025/xboard-node/internal/config"
 
 type NodeSpec struct {
+	ConfigRevision  int64
+	ConfigHash      string
 	Protocol        string
 	ListenIP        string
 	ServerPort      int

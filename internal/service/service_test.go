@@ -18,6 +18,7 @@ type fakeKernel struct {
 	running bool
 
 	startErr  error
+	reloadErr error
 	updateErr error
 	addErr    error
 
@@ -33,6 +34,7 @@ type fakeKernel struct {
 
 	speedLimitFunc  func(string) *rate.Limiter
 	deviceLimitFunc func(string) (int, bool)
+	startFailures   int
 }
 
 func (f *fakeKernel) Name() string                      { return "fake" }
@@ -41,6 +43,10 @@ func (f *fakeKernel) Capabilities() kernel.Capabilities { return kernel.Capabili
 func (f *fakeKernel) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	_, _, _ = nodeConfig, users, tls
 	f.startCalls++
+	if f.startFailures > 0 {
+		f.startFailures--
+		return errors.New("start failed")
+	}
 	if f.startErr != nil {
 		return f.startErr
 	}
@@ -52,7 +58,7 @@ func (f *fakeKernel) IsRunning() bool { return f.running }
 func (f *fakeKernel) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	_, _, _ = nodeConfig, users, tls
 	f.reloadCalls++
-	return nil
+	return f.reloadErr
 }
 func (f *fakeKernel) AddUsers(users []model.UserSpec) (int, error) {
 	f.addCalls++
@@ -224,6 +230,41 @@ func TestApplyChangesHotReloadsKernelWhenEgressChanges(t *testing.T) {
 	}
 	if k.reloadCalls != 1 {
 		t.Fatalf("Reload call count = %d, want 1", k.reloadCalls)
+	}
+}
+
+func TestApplyChangesRestoresLastKnownGoodAfterFailedRestart(t *testing.T) {
+	k := &fakeKernel{
+		running:       true,
+		reloadErr:     errors.New("invalid routes"),
+		startFailures: 1,
+	}
+	s := newTestService(k)
+	oldConfig := &model.NodeSpec{Protocol: "vless", ConfigRevision: 41, ConfigHash: "old"}
+	newConfig := &model.NodeSpec{Protocol: "vless", ConfigRevision: 42, ConfigHash: "new"}
+	oldUsers := []model.UserSpec{{ID: 1, UUID: "uuid-old"}}
+	newUsers := []model.UserSpec{{ID: 2, UUID: "uuid-new"}}
+	s.appliedState.Config = oldConfig
+	s.appliedState.Users = oldUsers
+	s.lastConfig = newConfig
+	s.lastUsers = newUsers
+
+	s.applyChanges(context.Background(), true, false)
+
+	if k.reloadCalls != 1 {
+		t.Fatalf("Reload call count = %d, want 1", k.reloadCalls)
+	}
+	if k.startCalls != 2 {
+		t.Fatalf("Start call count = %d, want 2 (new failure + rollback)", k.startCalls)
+	}
+	if s.lastConfig != oldConfig || s.appliedState.Config != oldConfig {
+		t.Fatalf("last-known-good config was not restored: last=%#v applied=%#v", s.lastConfig, s.appliedState.Config)
+	}
+	if len(s.lastUsers) != 1 || s.lastUsers[0].UUID != "uuid-old" {
+		t.Fatalf("last-known-good users were not restored: %#v", s.lastUsers)
+	}
+	if !k.running {
+		t.Fatal("kernel should be running with last-known-good config")
 	}
 }
 

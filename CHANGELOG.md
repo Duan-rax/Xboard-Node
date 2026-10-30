@@ -11,6 +11,10 @@ All notable fork changes are recorded here. Release dates use the
   separate matchers for both Sing-box and Xray.
 - Preserve legacy `match` rules and apply panel routes in ascending priority
   order.
+- Preserve panel `config_revision`/`config_hash` and return both in node status
+  reports for reliable applied-config confirmation.
+- Restore the last-known-good config/users when a reload and replacement kernel
+  start both fail instead of leaving partially applied routing state.
 
 ## 2026.10.30.2
 
