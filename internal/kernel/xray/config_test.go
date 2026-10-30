@@ -105,6 +105,51 @@ func TestBuildConfig_EgressProxyAddsLastRoute(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_DNSRouteAddsDNSOutbound(t *testing.T) {
+	nc := &panel.NodeConfig{
+		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
+		Routes: []panel.RouteRule{{
+			Criteria: &panel.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
+			Action: "dns", MatchMode: "all",
+		}},
+	}
+	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	var dnsOutbound M
+	for _, outbound := range cfg["outbounds"].([]M) {
+		if outbound["tag"] == "dns-out" {
+			dnsOutbound = outbound
+		}
+	}
+	if dnsOutbound == nil || dnsOutbound["protocol"] != "dns" {
+		t.Fatalf("missing dns-out outbound: %#v", cfg["outbounds"])
+	}
+	rules := cfg["routing"].(M)["rules"].([]M)
+	if rules[len(rules)-1]["outboundTag"] != "dns-out" {
+		t.Fatalf("DNS route does not use dns-out: %#v", rules[len(rules)-1])
+	}
+}
+
+func TestEgressProxyToXray_RealityUsesCurrentClientFields(t *testing.T) {
+	outbound := egressProxyToXray(&model.EgressProxyConfig{
+		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443,
+		Config: map[string]any{
+			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"server_name": "cdn.test",
+			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
+		},
+	})
+	reality := outbound["streamSettings"].(M)["realitySettings"].(M)
+	if _, exists := reality["publicKey"]; exists {
+		t.Fatalf("deprecated publicKey field is present: %#v", reality)
+	}
+	if reality["password"] != "key" || reality["fingerprint"] != "chrome" {
+		t.Fatalf("unexpected Reality client settings: %#v", reality)
+	}
+	if reality["serverName"] != "cdn.test" {
+		t.Fatalf("Reality serverName fallback is missing: %#v", reality)
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string

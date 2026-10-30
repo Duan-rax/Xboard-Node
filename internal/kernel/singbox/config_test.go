@@ -625,6 +625,49 @@ func TestBuildConfig_EgressProxyAddsCatchAllRule(t *testing.T) {
 	}
 }
 
+func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T) {
+	ss := egressProxyToSingbox(&model.EgressProxyConfig{
+		ID: 1, Protocol: "shadowsocks", Host: "proxy.test", Port: 8388,
+		Username: "stale-user", Password: "secret", Config: map[string]any{"method": "aes-256-gcm"},
+	})
+	if _, exists := ss["username"]; exists {
+		t.Fatalf("shadowsocks outbound contains unsupported username: %#v", ss)
+	}
+	assertMapValue(t, ss, "password", "secret")
+
+	trojan := egressProxyToSingbox(&model.EgressProxyConfig{
+		ID: 2, Protocol: "trojan", Host: "proxy.test", Port: 443,
+		Username: "stale-user", Password: "secret",
+	})
+	if _, exists := trojan["username"]; exists {
+		t.Fatalf("trojan outbound contains unsupported username: %#v", trojan)
+	}
+
+	vless := egressProxyToSingbox(&model.EgressProxyConfig{
+		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443, TLSServerName: "cdn.test",
+		Config: map[string]any{
+			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
+		},
+	})
+	tls := vless["tls"].(M)
+	utls := tls["utls"].(M)
+	assertMapValue(t, utls, "fingerprint", "chrome")
+}
+
+func TestBuildRoutes_DNSUsesHijackAction(t *testing.T) {
+	route := buildRoutes([]model.RouteRule{{
+		Criteria: &model.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
+		Action: "dns", MatchMode: "all",
+	}}, nil, nil)
+	rules := route["rules"].([]M)
+	last := rules[len(rules)-1]
+	assertMapValue(t, last, "action", "hijack-dns")
+	if _, exists := last["outbound"]; exists {
+		t.Fatalf("DNS hijack rule must not reference an outbound: %#v", last)
+	}
+}
+
 func TestBuildConfig_AllProtocols_ValidJSON(t *testing.T) {
 	protocols := []struct {
 		name string
