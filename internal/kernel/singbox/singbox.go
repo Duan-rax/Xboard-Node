@@ -21,6 +21,7 @@ import (
 
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
+	"github.com/cedar2025/xboard-node/internal/kernel/geodata"
 	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/cedar2025/xboard-node/internal/nlog"
 )
@@ -94,6 +95,11 @@ func (s *SingBox) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if requirements := geoRuleRequirements(nodeConfig); len(requirements) > 0 {
+		if err := geodata.EnsureRuleSets(geoSource(s.cfg), requirements); err != nil {
+			nlog.Core().Warn("some sing-box rule-sets are unavailable from cached or remote sources", "error", err)
+		}
+	}
 	cfgMap := buildConfig(s.cfg, nodeConfig, users, tls)
 	data, err := json.Marshal(cfgMap)
 	if err != nil {
@@ -201,6 +207,11 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 		return fmt.Errorf("not running")
 	}
 
+	if requirements := geoRuleRequirements(nodeConfig); len(requirements) > 0 {
+		if err := geodata.EnsureRuleSets(geoSource(s.cfg), requirements); err != nil {
+			nlog.Core().Warn("some sing-box rule-sets are unavailable from cached or remote sources", "error", err)
+		}
+	}
 	cfgMap := buildConfig(s.cfg, nodeConfig, users, tls)
 	data, err := json.Marshal(cfgMap)
 	if err != nil {

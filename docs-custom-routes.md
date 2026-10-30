@@ -101,6 +101,36 @@ Sing-box no longer accepts the legacy `geoip` and `geosite` route fields.
 Automatic Geo collections are compiled to remote `.srs` rule-sets and cached
 through `experimental.cache_file`.
 
+## Geo Data Sources
+
+Geo databases are downloaded on each backend node, not on the panel host.
+The default source is MetaCubeX.
+
+```yaml
+kernel:
+  type: singbox
+  geo_data_dir: /etc/xboard-node
+  geo_rule_set_provider: metacubex # metacubex | sagernet | custom
+  geo_data_variant: full           # full | lite
+
+  # Xray .dat/.db provider. SagerNet falls back to Loyalsoldier for Xray.
+  geo_data_provider: metacubex # metacubex | loyalsoldier | sagernet | custom
+```
+
+Custom rule-set sources use `{tag}` in the URL template:
+
+```yaml
+kernel:
+  geo_rule_set_provider: custom
+  geoip_rule_set_url: https://rules.example/geoip/{tag}.srs
+  geosite_rule_set_url: https://rules.example/geosite/{tag}.srs
+```
+
+Downloaded SRS files are stored under
+`geo_data_dir/rulesets/<provider>/<variant>/<geoip|geosite>/`. The node tries
+jsDelivr first, falls back to GitHub, keeps a valid cached file if an update
+fails, and refreshes rule-sets daily.
+
 ## Best Practices
 
 - **Prefer** `custom_route_rules`: cross-kernel compatible, panel-managed

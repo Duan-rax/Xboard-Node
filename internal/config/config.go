@@ -19,14 +19,14 @@ import (
 )
 
 type Config struct {
-	InstanceID string `yaml:"-"`
-	Panel   PanelConfig   `yaml:"panel"`
-	Node    NodeConfig    `yaml:"node"`
-	Kernel  KernelConfig  `yaml:"kernel"`
-	Cert    CertConfig    `yaml:"cert"`
-	Log     LogConfig     `yaml:"log"`
-	Runtime RuntimeConfig `yaml:"runtime"`
-	WS      WSConfig      `yaml:"ws"`
+	InstanceID string        `yaml:"-"`
+	Panel      PanelConfig   `yaml:"panel"`
+	Node       NodeConfig    `yaml:"node"`
+	Kernel     KernelConfig  `yaml:"kernel"`
+	Cert       CertConfig    `yaml:"cert"`
+	Log        LogConfig     `yaml:"log"`
+	Runtime    RuntimeConfig `yaml:"runtime"`
+	WS         WSConfig      `yaml:"ws"`
 	// Standalone enables a local-only node that never contacts the panel.
 	Standalone *StandaloneConfig `yaml:"standalone,omitempty"`
 	// HealthPort enables a lightweight HTTP health-check endpoint on the
@@ -65,13 +65,20 @@ type NodeEntry struct {
 // KernelOverride holds the subset of KernelConfig that is useful to override
 // per-node. Only non-zero fields replace the global value.
 type KernelOverride struct {
-	ConfigDir    string `yaml:"config_dir,omitempty"`
-	GeoDataDir   string `yaml:"geo_data_dir,omitempty"`
-	LogLevel     string `yaml:"log_level,omitempty"`
-	XrayAccessLog string `yaml:"xray_access_log,omitempty"`
+	ConfigDir               string `yaml:"config_dir,omitempty"`
+	GeoDataDir              string `yaml:"geo_data_dir,omitempty"`
+	GeoDataProvider         string `yaml:"geo_data_provider,omitempty"`
+	GeoDataVariant          string `yaml:"geo_data_variant,omitempty"`
+	GeoIPDataURL            string `yaml:"geoip_data_url,omitempty"`
+	GeoSiteDataURL          string `yaml:"geosite_data_url,omitempty"`
+	GeoRuleSetProvider      string `yaml:"geo_rule_set_provider,omitempty"`
+	GeoIPRuleSetURL         string `yaml:"geoip_rule_set_url,omitempty"`
+	GeoSiteRuleSetURL       string `yaml:"geosite_rule_set_url,omitempty"`
+	LogLevel                string `yaml:"log_level,omitempty"`
+	XrayAccessLog           string `yaml:"xray_access_log,omitempty"`
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override,omitempty"`
 	XrayRealityXver         int    `yaml:"xray_reality_xver,omitempty"`
-	CustomConfig string `yaml:"custom_config,omitempty"`
+	CustomConfig            string `yaml:"custom_config,omitempty"`
 }
 
 // RuntimeConfig tunes Go runtime memory behaviour.
@@ -145,6 +152,22 @@ type KernelConfig struct {
 	// Defaults to config_dir when empty. You only need to set this if your
 	// geo database files live somewhere other than config_dir.
 	GeoDataDir string `yaml:"geo_data_dir"`
+	// GeoDataProvider selects the kernel database source:
+	// metacubex (default), loyalsoldier, sagernet, or custom.
+	// For Xray, sagernet falls back to Loyalsoldier's .dat files because
+	// SagerNet publishes sing-box databases only.
+	GeoDataProvider string `yaml:"geo_data_provider"`
+	// GeoDataVariant selects MetaCubeX's full or lite data set.
+	GeoDataVariant string `yaml:"geo_data_variant"`
+	// GeoIPDataURL and GeoSiteDataURL override the selected database source.
+	GeoIPDataURL   string `yaml:"geoip_data_url"`
+	GeoSiteDataURL string `yaml:"geosite_data_url"`
+	// GeoRuleSetProvider selects the sing-box .srs source:
+	// metacubex (default), sagernet, or custom.
+	GeoRuleSetProvider string `yaml:"geo_rule_set_provider"`
+	// Rule-set URL templates support the {tag} placeholder.
+	GeoIPRuleSetURL   string `yaml:"geoip_rule_set_url"`
+	GeoSiteRuleSetURL string `yaml:"geosite_rule_set_url"`
 
 	// CustomOutbound adds outbound entries to the generated kernel config.
 	// Each item is a raw kernel-native outbound object (sing-box or xray format).
@@ -542,6 +565,27 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Kernel.GeoDataDir == "" {
 		c.Kernel.GeoDataDir = parent.Kernel.GeoDataDir
 	}
+	if c.Kernel.GeoDataProvider == "" {
+		c.Kernel.GeoDataProvider = parent.Kernel.GeoDataProvider
+	}
+	if c.Kernel.GeoDataVariant == "" {
+		c.Kernel.GeoDataVariant = parent.Kernel.GeoDataVariant
+	}
+	if c.Kernel.GeoIPDataURL == "" {
+		c.Kernel.GeoIPDataURL = parent.Kernel.GeoIPDataURL
+	}
+	if c.Kernel.GeoSiteDataURL == "" {
+		c.Kernel.GeoSiteDataURL = parent.Kernel.GeoSiteDataURL
+	}
+	if c.Kernel.GeoRuleSetProvider == "" {
+		c.Kernel.GeoRuleSetProvider = parent.Kernel.GeoRuleSetProvider
+	}
+	if c.Kernel.GeoIPRuleSetURL == "" {
+		c.Kernel.GeoIPRuleSetURL = parent.Kernel.GeoIPRuleSetURL
+	}
+	if c.Kernel.GeoSiteRuleSetURL == "" {
+		c.Kernel.GeoSiteRuleSetURL = parent.Kernel.GeoSiteRuleSetURL
+	}
 	if c.Kernel.CustomConfig == "" {
 		c.Kernel.CustomConfig = parent.Kernel.CustomConfig
 	}
@@ -600,6 +644,15 @@ func (c *Config) setDefaultsFrom(baseDir string) {
 	}
 	if c.Kernel.GeoDataDir == "" {
 		c.Kernel.GeoDataDir = c.Kernel.ConfigDir
+	}
+	if c.Kernel.GeoDataProvider == "" {
+		c.Kernel.GeoDataProvider = "metacubex"
+	}
+	if c.Kernel.GeoDataVariant == "" {
+		c.Kernel.GeoDataVariant = "full"
+	}
+	if c.Kernel.GeoRuleSetProvider == "" {
+		c.Kernel.GeoRuleSetProvider = "metacubex"
 	}
 	if c.Kernel.LogLevel == "" {
 		c.Kernel.LogLevel = "warn"
@@ -765,6 +818,29 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("kernel.type must be 'singbox' or 'xray', got '%s'", c.Kernel.Type)
 	}
+	dataProvider := strings.ToLower(strings.TrimSpace(c.Kernel.GeoDataProvider))
+	switch dataProvider {
+	case "", "metacubex", "meta", "metacube", "loyalsoldier", "loyal", "sagernet", "sager", "custom":
+	default:
+		return fmt.Errorf("kernel.geo_data_provider must be metacubex, loyalsoldier, sagernet, or custom, got '%s'", c.Kernel.GeoDataProvider)
+	}
+	ruleSetProvider := strings.ToLower(strings.TrimSpace(c.Kernel.GeoRuleSetProvider))
+	switch ruleSetProvider {
+	case "", "metacubex", "meta", "metacube", "sagernet", "sager", "custom":
+	default:
+		return fmt.Errorf("kernel.geo_rule_set_provider must be metacubex, sagernet, or custom, got '%s'", c.Kernel.GeoRuleSetProvider)
+	}
+	variant := strings.ToLower(strings.TrimSpace(c.Kernel.GeoDataVariant))
+	if variant != "" && variant != "full" && variant != "lite" {
+		return fmt.Errorf("kernel.geo_data_variant must be full or lite, got '%s'", c.Kernel.GeoDataVariant)
+	}
+	if ruleSetProvider == "custom" && c.Kernel.GeoIPRuleSetURL == "" && c.Kernel.GeoSiteRuleSetURL == "" {
+		return fmt.Errorf("custom geo_rule_set_provider requires geoip_rule_set_url or geosite_rule_set_url")
+	}
+	if (c.Kernel.GeoIPRuleSetURL != "" && !strings.Contains(c.Kernel.GeoIPRuleSetURL, "{tag}")) ||
+		(c.Kernel.GeoSiteRuleSetURL != "" && !strings.Contains(c.Kernel.GeoSiteRuleSetURL, "{tag}")) {
+		return fmt.Errorf("custom rule-set URL templates must contain the {tag} placeholder")
+	}
 	if c.Cert.AutoTLS && c.Cert.Domain == "" {
 		return fmt.Errorf("cert.domain is required when cert.auto_tls is enabled")
 	}
@@ -805,6 +881,27 @@ func (c *Config) ExpandNodes() []*Config {
 			}
 			if entry.Kernel.GeoDataDir != "" {
 				nodeCfg.Kernel.GeoDataDir = entry.Kernel.GeoDataDir
+			}
+			if entry.Kernel.GeoDataProvider != "" {
+				nodeCfg.Kernel.GeoDataProvider = entry.Kernel.GeoDataProvider
+			}
+			if entry.Kernel.GeoDataVariant != "" {
+				nodeCfg.Kernel.GeoDataVariant = entry.Kernel.GeoDataVariant
+			}
+			if entry.Kernel.GeoIPDataURL != "" {
+				nodeCfg.Kernel.GeoIPDataURL = entry.Kernel.GeoIPDataURL
+			}
+			if entry.Kernel.GeoSiteDataURL != "" {
+				nodeCfg.Kernel.GeoSiteDataURL = entry.Kernel.GeoSiteDataURL
+			}
+			if entry.Kernel.GeoRuleSetProvider != "" {
+				nodeCfg.Kernel.GeoRuleSetProvider = entry.Kernel.GeoRuleSetProvider
+			}
+			if entry.Kernel.GeoIPRuleSetURL != "" {
+				nodeCfg.Kernel.GeoIPRuleSetURL = entry.Kernel.GeoIPRuleSetURL
+			}
+			if entry.Kernel.GeoSiteRuleSetURL != "" {
+				nodeCfg.Kernel.GeoSiteRuleSetURL = entry.Kernel.GeoSiteRuleSetURL
 			}
 			if entry.Kernel.LogLevel != "" {
 				nodeCfg.Kernel.LogLevel = entry.Kernel.LogLevel

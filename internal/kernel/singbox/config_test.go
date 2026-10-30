@@ -927,6 +927,12 @@ func TestBuildRoutes_GeoCollectionsAndNativeRuleSet(t *testing.T) {
 	if definitions[0]["tag"] != "geoip-cn" || definitions[1]["tag"] != "geosite-category-ads-all" {
 		t.Fatalf("unexpected automatic definitions: %#v", definitions)
 	}
+	if got := definitions[0]["url"].(string); got != "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs" {
+		t.Fatalf("MetaCubeX GeoIP URL = %q", got)
+	}
+	if got := definitions[1]["url"].(string); got != "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/category-ads-all.srs" {
+		t.Fatalf("MetaCubeX GeoSite URL = %q", got)
+	}
 	data, err := json.Marshal(M{"route": route, "outbounds": []M{{"type": "direct", "tag": "direct"}}})
 	if err != nil {
 		t.Fatal(err)

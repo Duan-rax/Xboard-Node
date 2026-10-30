@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
+	"github.com/cedar2025/xboard-node/internal/kernel/geodata"
 	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/go-viper/mapstructure/v2"
@@ -71,7 +73,12 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	// Merge panel routes and static config routes
-	cfg["route"] = buildRoutes(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
+	cfg["route"] = buildRoutesWithSource(
+		nc.Routes,
+		nc.CustomRouteRules,
+		mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute),
+		geoSource(kcfg),
+	)
 
 	// Automatically enable rule_set caching (cache_file) when panel routes
 	// reference geoip:/geosite: entries so that the downloaded .srs rule_set
@@ -280,6 +287,10 @@ func mergeRouteList(a, b []map[string]any) []map[string]any {
 }
 
 func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any) M {
+	return buildRoutesWithSource(panelRoutes, customRules, custom, geodata.Source{Provider: "metacubex", Variant: "full"})
+}
+
+func buildRoutesWithSource(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any, source geodata.Source) M {
 	var rules []M
 	panelRoutes = append([]model.RouteRule(nil), panelRoutes...)
 	sort.SliceStable(panelRoutes, func(i, j int) bool {
@@ -335,7 +346,7 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 		"final": "direct",
 		"rules": rules,
 	}
-	if ruleSets := automaticGeoRuleSets(panelRoutes, customRules); len(ruleSets) > 0 {
+	if ruleSets := automaticGeoRuleSets(panelRoutes, customRules, source); len(ruleSets) > 0 {
 		route["rule_set"] = ruleSets
 	}
 	return route
@@ -553,7 +564,7 @@ func logicalOr(rules []M) M {
 	return M{"type": "logical", "mode": "or", "rules": rules}
 }
 
-func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule) []M {
+func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, source geodata.Source) []M {
 	definitions := map[string]M{}
 	add := func(match model.RouteMatch) {
 		for _, value := range match.GeoIP {
@@ -562,7 +573,7 @@ func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.Cus
 				continue
 			}
 			tag := "geoip-" + code
-			definitions[tag] = M{"type": "remote", "tag": tag, "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/" + tag + ".srs", "update_interval": "1d"}
+			definitions[tag] = automaticGeoDefinition(source, "geoip", code)
 		}
 		for _, value := range match.GeoSite {
 			code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geosite:")))
@@ -570,7 +581,7 @@ func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.Cus
 				continue
 			}
 			tag := "geosite-" + code
-			definitions[tag] = M{"type": "remote", "tag": tag, "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/" + tag + ".srs", "update_interval": "1d"}
+			definitions[tag] = automaticGeoDefinition(source, "geosite", code)
 		}
 	}
 	for _, route := range panelRoutes {
@@ -593,6 +604,71 @@ func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.Cus
 		result = append(result, definitions[tag])
 	}
 	return result
+}
+
+func automaticGeoDefinition(source geodata.Source, kind, code string) M {
+	tag := kind + "-" + code
+	if path := geodata.RuleSetCachePath(source, kind, code); path != "" {
+		if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+			return M{"type": "local", "tag": tag, "format": "binary", "path": path}
+		}
+	}
+	urls := geodata.RuleSetURLs(source, kind, code)
+	if len(urls) == 0 {
+		return M{"type": "remote", "tag": tag, "format": "binary"}
+	}
+	return M{
+		"type":            "remote",
+		"tag":             tag,
+		"format":          "binary",
+		"url":             urls[0],
+		"update_interval": "1d",
+	}
+}
+
+func geoSource(kcfg config.KernelConfig) geodata.Source {
+	cacheDir := strings.TrimSpace(kcfg.GeoDataDir)
+	if cacheDir == "" {
+		cacheDir = kcfg.ConfigDir
+	}
+	return geodata.NormalizeSource(geodata.Source{
+		Provider:          kcfg.GeoRuleSetProvider,
+		Variant:           kcfg.GeoDataVariant,
+		GeoIPURL:          kcfg.GeoIPDataURL,
+		GeoSiteURL:        kcfg.GeoSiteDataURL,
+		GeoIPRuleSetURL:   kcfg.GeoIPRuleSetURL,
+		GeoSiteRuleSetURL: kcfg.GeoSiteRuleSetURL,
+		CacheDir:          cacheDir,
+	})
+}
+
+func geoRuleRequirements(nc *model.NodeSpec) []geodata.Requirement {
+	var requirements []geodata.Requirement
+	add := func(match model.RouteMatch) {
+		for _, value := range match.GeoIP {
+			code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geoip:")))
+			if code != "" && code != "private" {
+				requirements = append(requirements, geodata.Requirement{Kind: "geoip", Tag: code})
+			}
+		}
+		for _, value := range match.GeoSite {
+			code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geosite:")))
+			if code != "" {
+				requirements = append(requirements, geodata.Requirement{Kind: "geosite", Tag: code})
+			}
+		}
+	}
+	for _, route := range nc.Routes {
+		if !route.Disabled {
+			add(panelRouteMatch(route))
+		}
+	}
+	for _, rule := range nc.CustomRouteRules {
+		if !rule.Disabled {
+			add(rule.Match)
+		}
+	}
+	return requirements
 }
 
 func uniqueStrings(values []string) []string {

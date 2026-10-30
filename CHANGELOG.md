@@ -23,6 +23,15 @@ All notable fork changes are recorded here. Release dates use the
 - Let custom Sing-box rule-set and experimental settings override generated
   values without dropping the cache needed by remote rule-sets.
 
+### Geo data
+
+- Default both kernels to MetaCubeX, with optional SagerNet and custom URL
+  sources.
+- Download sing-box SRS files on each backend node and cache them locally with
+  CDN-to-GitHub fallback and daily refresh.
+- Download Xray GeoIP/GeoSite databases on the backend node and point
+  `XRAY_LOCATION_ASSET` at the node-owned directory.
+
 ## 2026.10.30.2
 
 Release: `v2026.10.30.2`
