@@ -112,6 +112,14 @@ sudo systemctl enable --now traffic-audit-collector
 
 Set `panel_event_url` to the native traffic-audit endpoint and use the Secret shown under **安全审计 → 审计接收设置**. Keep `config.json` mode `0600`.
 
+## Log rotation
+
+`install-fork.sh` installs `/etc/logrotate.d/xboard-node-audit`. Audit logs
+rotate daily or at 100 MB, keep seven compressed generations, and use
+`copytruncate` so file-following collectors reopen truncated files. A journald
+drop-in caps system journal usage at 256 MB. Panel-side audit events continue
+to follow the configured retention period.
+
 ## Retention and limits
 
 This stores destination metadata, not encrypted page contents. Use a short retention period and an event ingestion rate appropriate for your node capacity. Very short-lived connections between polls can be missed; set `interval_seconds` to 1 for greater fidelity at higher panel write volume.

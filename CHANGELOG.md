@@ -33,6 +33,8 @@ All notable fork changes are recorded here. Release dates use the
   GitHub releases, and one-command provisioning for new machines.
 - Publish per-node Xray access-log targets through the machine audit manifest
   so newly added Xray nodes do not require collector reconfiguration.
+- Rotate Xray audit logs at 100 MB with seven compressed generations and cap
+  the systemd journal at 256 MB to prevent audit data from exhausting disks.
 - Split managed kernel generation into stable compiler boundaries:
   `route_compiler.go`, `outbound_compiler.go`, `reality_override.go` for Xray,
   and `route_compiler.go`, `outbound_compiler.go`, `rule_set_compiler.go` for

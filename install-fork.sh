@@ -24,6 +24,8 @@ AUDIT_CONFIG_FILE="${AUDIT_CONFIG_DIR}/config.json"
 AUDIT_BINARY_PATH="/usr/local/bin/traffic-audit-collector"
 AUDIT_SERVICE_NAME="traffic-audit-collector.service"
 AUDIT_SERVICE_PATH="/etc/systemd/system/${AUDIT_SERVICE_NAME}"
+AUDIT_LOGROTATE_PATH="/etc/logrotate.d/xboard-node-audit"
+JOURNALD_DROPIN_PATH="/etc/systemd/journald.conf.d/90-xboard-node-audit.conf"
 CLI_BINARY_SOURCE=""
 DEFAULT_HEALTH_PORT=65530
 DEFAULT_KERNEL="singbox"
@@ -64,6 +66,8 @@ AUDIT_XRAY_ACCESS_LOG="${DEFAULT_XRAY_ACCESS_LOG}"
 AUDIT_COLLECTOR_STAGED=""
 AUDIT_CONFIG_STAGED=""
 AUDIT_SERVICE_STAGED=""
+AUDIT_LOGROTATE_STAGED=""
+JOURNALD_DROPIN_STAGED=""
 PURGE=0
 YES=0
 ARCH=""
@@ -161,6 +165,17 @@ rollback_install() {
             install -m 644 "$BACKUP_PATH/${AUDIT_SERVICE_NAME}" "$AUDIT_SERVICE_PATH"
         else
             rm -f "$AUDIT_SERVICE_PATH"
+        fi
+        if [ -f "$BACKUP_PATH/xboard-node-audit.logrotate" ]; then
+            install -m 644 "$BACKUP_PATH/xboard-node-audit.logrotate" "$AUDIT_LOGROTATE_PATH"
+        else
+            rm -f "$AUDIT_LOGROTATE_PATH"
+        fi
+        if [ -f "$BACKUP_PATH/90-xboard-node-audit.conf" ]; then
+            install -d -m 755 "$(dirname "$JOURNALD_DROPIN_PATH")"
+            install -m 644 "$BACKUP_PATH/90-xboard-node-audit.conf" "$JOURNALD_DROPIN_PATH"
+        else
+            rm -f "$JOURNALD_DROPIN_PATH"
         fi
     fi
     load_health_port_from_config "$CONFIG_FILE"
@@ -438,13 +453,13 @@ install_dependencies() {
     case "$OS" in
         ubuntu|debian)
             DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get install -y -qq curl wget ca-certificates >/dev/null 2>&1
+            DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get install -y -qq curl wget ca-certificates logrotate >/dev/null 2>&1
             ;;
         centos|rhel|rocky|almalinux|fedora)
             if command -v dnf >/dev/null 2>&1; then
-                run_with_retry 5 3 dnf install -y -q curl wget ca-certificates >/dev/null 2>&1
+                run_with_retry 5 3 dnf install -y -q curl wget ca-certificates logrotate >/dev/null 2>&1
             else
-                run_with_retry 5 3 yum install -y -q curl wget ca-certificates >/dev/null 2>&1
+                run_with_retry 5 3 yum install -y -q curl wget ca-certificates logrotate >/dev/null 2>&1
             fi
             ;;
         *)
@@ -694,6 +709,8 @@ render_audit_files() {
     [ "$AUDIT_ENABLED" -eq 1 ] || return
     local config="$TMP_DIR/traffic-audit-config.json"
     local service="$TMP_DIR/${AUDIT_SERVICE_NAME}"
+    local logrotate="$TMP_DIR/xboard-node-audit.logrotate"
+    local journald="$TMP_DIR/90-xboard-node-audit.conf"
     cat >"$config" <<EOF_AUDIT_CONFIG
 {
   "panel_event_url": "$AUDIT_PANEL_EVENT_URL",
@@ -723,8 +740,28 @@ ProtectSystem=strict
 [Install]
 WantedBy=multi-user.target
 EOF_AUDIT_SERVICE
+    cat >"$logrotate" <<'EOF_AUDIT_LOGROTATE'
+/var/log/xboard-node/*.log {
+    daily
+    maxsize 100M
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
+EOF_AUDIT_LOGROTATE
+    cat >"$journald" <<'EOF_JOURNALD'
+[Journal]
+SystemMaxUse=256M
+SystemMaxFileSize=64M
+EOF_JOURNALD
     AUDIT_CONFIG_STAGED="$config"
     AUDIT_SERVICE_STAGED="$service"
+    AUDIT_LOGROTATE_STAGED="$logrotate"
+    JOURNALD_DROPIN_STAGED="$journald"
     mkdir -p "$(dirname "$AUDIT_MANIFEST_PATH")" "$(dirname "$AUDIT_XRAY_ACCESS_LOG")"
     chmod 700 "$(dirname "$AUDIT_MANIFEST_PATH")"
     chmod 750 "$(dirname "$AUDIT_XRAY_ACCESS_LOG")"
@@ -741,7 +778,12 @@ install_audit_collector() {
     install -m 755 "$AUDIT_COLLECTOR_STAGED" "$AUDIT_BINARY_PATH"
     install -m 600 "$AUDIT_CONFIG_STAGED" "$AUDIT_CONFIG_FILE"
     install -m 644 "$AUDIT_SERVICE_STAGED" "$AUDIT_SERVICE_PATH"
+    install -m 644 "$AUDIT_LOGROTATE_STAGED" "$AUDIT_LOGROTATE_PATH"
+    install -d -m 755 "$(dirname "$JOURNALD_DROPIN_PATH")"
+    install -m 644 "$JOURNALD_DROPIN_STAGED" "$JOURNALD_DROPIN_PATH"
     systemctl daemon-reload
+    systemctl restart systemd-journald >/dev/null 2>&1 || true
+    journalctl --vacuum-size=200M >/dev/null 2>&1 || true
     systemctl enable --now "$AUDIT_SERVICE_NAME" >/dev/null 2>&1
     systemctl restart "$AUDIT_SERVICE_NAME"
     sleep 2
@@ -749,6 +791,9 @@ install_audit_collector() {
         log_error "Audit collector failed to start"
         journalctl -u "$AUDIT_SERVICE_NAME" -n 30 --no-pager || true
         return 1
+    fi
+    if command -v logrotate >/dev/null 2>&1; then
+        logrotate -f "$AUDIT_LOGROTATE_PATH" >/dev/null 2>&1 || true
     fi
 }
 
@@ -866,6 +911,12 @@ backup_existing_state() {
         AUDIT_SERVICE_EXISTED=1
     else
         AUDIT_SERVICE_EXISTED=0
+    fi
+    if [ -f "$AUDIT_LOGROTATE_PATH" ]; then
+        cp "$AUDIT_LOGROTATE_PATH" "$BACKUP_PATH/xboard-node-audit.logrotate"
+    fi
+    if [ -f "$JOURNALD_DROPIN_PATH" ]; then
+        cp "$JOURNALD_DROPIN_PATH" "$BACKUP_PATH/90-xboard-node-audit.conf"
     fi
 }
 
@@ -1017,6 +1068,7 @@ perform_uninstall() {
     systemctl stop "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl disable "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
     rm -f "$AUDIT_SERVICE_PATH" "$AUDIT_BINARY_PATH"
+    rm -f "$AUDIT_LOGROTATE_PATH" "$JOURNALD_DROPIN_PATH"
     systemctl daemon-reload || true
     rm -f "$BINARY_PATH"
     rm -f "$CLI_PATH"
