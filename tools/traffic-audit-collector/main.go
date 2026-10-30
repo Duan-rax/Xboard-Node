@@ -110,6 +110,12 @@ type managedTarget struct {
 	owners map[string]bool
 }
 
+type pendingAuditEvent struct {
+	Target    Target
+	Event     Event
+	ExpiresAt time.Time
+}
+
 type Collector struct {
 	cfg                 Config
 	client              *http.Client
@@ -118,6 +124,7 @@ type Collector struct {
 	singBoxContexts     map[string]singBoxLogContext
 	singBoxIdentities   map[string]singBoxIdentity
 	singBoxRecentUsers  map[string]singBoxIdentity
+	pendingEvents       map[string]pendingAuditEvent
 	startMu             sync.Mutex
 	startedTargets      map[string]*managedTarget
 	startedJournalUnits map[string]bool
@@ -148,6 +155,7 @@ func main() {
 		singBoxContexts:     make(map[string]singBoxLogContext),
 		singBoxIdentities:   make(map[string]singBoxIdentity),
 		singBoxRecentUsers:  make(map[string]singBoxIdentity),
+		pendingEvents:       make(map[string]pendingAuditEvent),
 		startedTargets:      make(map[string]*managedTarget),
 		startedJournalUnits: make(map[string]bool),
 	}
@@ -286,6 +294,9 @@ func (c *Collector) pollSingBox(ctx context.Context, target Target) {
 }
 
 func (c *Collector) collectSingBox(target Target) error {
+	if err := c.flushPendingEvents(target); err != nil {
+		log.Printf("sing-box %s pending event: %v", target.NodeID, err)
+	}
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(target.ClashAPI, "/")+"/connections", nil)
 	if err != nil {
 		return err
@@ -338,9 +349,12 @@ func (c *Collector) collectSingBox(target Target) error {
 			}
 		}
 		event := c.eventFromClash(target, conn, eventType, upDelta, downDelta)
-		if err := c.post(event); err != nil {
+		if err := c.queueSingBoxEvent(target, event); err != nil {
 			return err
 		}
+	}
+	if err := c.flushPendingEvents(target); err != nil {
+		log.Printf("sing-box %s pending event: %v", target.NodeID, err)
 	}
 
 	c.mu.Lock()
@@ -351,6 +365,67 @@ func (c *Collector) collectSingBox(target Target) error {
 	}
 	c.mu.Unlock()
 	return nil
+}
+
+func (c *Collector) queueSingBoxEvent(target Target, event Event) error {
+	if event.UserID != nil {
+		return c.post(event)
+	}
+	c.mu.Lock()
+	if c.pendingEvents == nil {
+		c.pendingEvents = make(map[string]pendingAuditEvent)
+	}
+	c.pendingEvents[event.EventID] = pendingAuditEvent{
+		Target:    target,
+		Event:     event,
+		ExpiresAt: time.Now().Add(20 * time.Second),
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Collector) resolvePendingEvent(item pendingAuditEvent) pendingAuditEvent {
+	if item.Event.UserID != nil {
+		return item
+	}
+	user := c.singBoxUser(item.Target, item.Event.ClientSource, item.Event.Destination)
+	if user == "" {
+		return item
+	}
+	item.Event.UserID = parseUserID(user)
+	if item.Event.Metadata == nil {
+		item.Event.Metadata = make(map[string]any)
+	}
+	item.Event.Metadata["user"] = user
+	return item
+}
+
+func (c *Collector) flushPendingEvents(target Target) error {
+	now := time.Now()
+	c.mu.Lock()
+	pending := make([]pendingAuditEvent, 0, len(c.pendingEvents))
+	for _, item := range c.pendingEvents {
+		if item.Target.NodeID == target.NodeID {
+			pending = append(pending, item)
+		}
+	}
+	c.mu.Unlock()
+
+	var lastErr error
+	for _, item := range pending {
+		resolved := c.resolvePendingEvent(item)
+		if resolved.Event.UserID == nil && resolved.ExpiresAt.After(now) {
+			continue
+		}
+		if err := c.post(resolved.Event); err != nil {
+			lastErr = err
+			continue
+		}
+		c.mu.Lock()
+		delete(c.pendingEvents, resolved.Event.EventID)
+		c.mu.Unlock()
+	}
+	return lastErr
 }
 
 func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventType string, upload, download uint64) Event {

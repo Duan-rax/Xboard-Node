@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSingBoxJournalIdentityCorrelation(t *testing.T) {
 	collector := &Collector{
@@ -37,6 +40,38 @@ func TestSingBoxAuditConnectionIdentity(t *testing.T) {
 	}
 	if got := parseUserID("@7"); got == nil || *got != 7 {
 		t.Fatalf("parsed audit user = %v", got)
+	}
+}
+
+func TestPendingEventResolvesLateIdentity(t *testing.T) {
+	collector := &Collector{
+		singBoxContexts:    make(map[string]singBoxLogContext),
+		singBoxIdentities:  make(map[string]singBoxIdentity),
+		singBoxRecentUsers: make(map[string]singBoxIdentity),
+		pendingEvents:      make(map[string]pendingAuditEvent),
+	}
+	target := Target{NodeID: "jp-01", SingBoxJournalUnit: "xboard-node"}
+	item := pendingAuditEvent{
+		Target: target,
+		Event: Event{
+			EventID:      "event-late-user",
+			ClientSource: "203.0.113.8:52144",
+			Destination:  "speed.cloudflare.com:443",
+			Metadata:     make(map[string]any),
+		},
+		ExpiresAt: time.Now().Add(20 * time.Second),
+	}
+
+	collector.handleSingBoxLogLine(
+		"xboard-node",
+		"INFO [core] audit connection user_id=9 source=203.0.113.8:52144 destination=speed.cloudflare.com:443 domain=speed.cloudflare.com",
+	)
+	resolved := collector.resolvePendingEvent(item)
+	if resolved.Event.UserID == nil || *resolved.Event.UserID != 9 {
+		t.Fatalf("late event user = %v", resolved.Event.UserID)
+	}
+	if resolved.Event.Metadata["user"] != "@9" {
+		t.Fatalf("late event metadata user = %v", resolved.Event.Metadata["user"])
 	}
 }
 
