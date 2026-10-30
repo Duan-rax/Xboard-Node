@@ -62,6 +62,13 @@ For reliable Xboard user attribution, set the sing-box instance to `kernel.log_l
 
 Some sing-box Clash API builds omit the authenticated user from `/connections`. For Xboard-Node, set the node `kernel.log_level` to `info` and configure `singbox_journal_unit: "xboard-node"` in the collector target. The collector correlates sing-box's connection ID log lines (source, destination, authenticated UUID) with the Clash connection metadata, then forwards the UUID to Xboard for user-ID mapping. If a connection has no matching user log, it remains visible only in the all-user aggregate.
 
+Xboard-Node also emits `audit connection user_id=... source=... destination=...
+domain=...` for each routed connection. The collector prefers an exact
+source/destination match and uses the destination for a short 15-second fallback,
+because some Clash API builds report the node's outbound address instead of the
+real client source. This fallback is intended for low-concurrency audit
+attribution and still uses the numeric user ID reported by the node gateway.
+
 ## Xray / V2bX: website records and connection counts
 
 The collector tails a standard Xray access log and sends destination, source, and `user@<id>` when present. Xray access logs do not provide a trustworthy per-destination upload/download counter, so its events contribute website records and connection counts, but not per-site bytes.

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,20 +25,20 @@ import (
 )
 
 type Config struct {
-	PanelEventURL string   `json:"panel_event_url"`
-	WebhookSecret string   `json:"webhook_secret"`
-	IntervalSeconds int    `json:"interval_seconds"`
-	Targets        []Target `json:"targets"`
-	ManifestPaths  []string `json:"manifest_paths"`
+	PanelEventURL   string   `json:"panel_event_url"`
+	WebhookSecret   string   `json:"webhook_secret"`
+	IntervalSeconds int      `json:"interval_seconds"`
+	Targets         []Target `json:"targets"`
+	ManifestPaths   []string `json:"manifest_paths"`
 }
 
 type Target struct {
-	NodeID        string `json:"node_id"`
-	Kernel        string `json:"kernel"`
-	ClashAPI      string `json:"clash_api"`
-	ClashSecret   string `json:"clash_secret"`
+	NodeID             string `json:"node_id"`
+	Kernel             string `json:"kernel"`
+	ClashAPI           string `json:"clash_api"`
+	ClashSecret        string `json:"clash_secret"`
 	SingBoxJournalUnit string `json:"singbox_journal_unit"`
-	XrayAccessLog string `json:"xray_access_log"`
+	XrayAccessLog      string `json:"xray_access_log"`
 }
 
 type Event struct {
@@ -89,7 +90,7 @@ type ClashMetadata struct {
 	User            string `json:"user"`
 }
 
-type counter struct { up, down uint64 }
+type counter struct{ up, down uint64 }
 
 type singBoxLogContext struct {
 	Source      string
@@ -110,24 +111,26 @@ type managedTarget struct {
 }
 
 type Collector struct {
-	cfg     Config
-	client  *http.Client
-	mu      sync.Mutex
-	counters map[string]counter
-	singBoxContexts  map[string]singBoxLogContext
-	singBoxIdentities map[string]singBoxIdentity
-	startMu sync.Mutex
-	startedTargets map[string]*managedTarget
+	cfg                 Config
+	client              *http.Client
+	mu                  sync.Mutex
+	counters            map[string]counter
+	singBoxContexts     map[string]singBoxLogContext
+	singBoxIdentities   map[string]singBoxIdentity
+	singBoxRecentUsers  map[string]singBoxIdentity
+	startMu             sync.Mutex
+	startedTargets      map[string]*managedTarget
 	startedJournalUnits map[string]bool
 }
 
 var (
-	xrayAccepted = regexp.MustCompile(`from\s+([^\s]+)\s+accepted\s+([^\s]+)`)
-	xrayEmail    = regexp.MustCompile(`email:\s*([^\s]+)`)
-	userIDSuffix = regexp.MustCompile(`(?:^|@)([1-9][0-9]*)$`)
-	singBoxContextID = regexp.MustCompile(`\[(\d+)(?:\s+[^\]]+)?\]`)
-	singBoxSource = regexp.MustCompile(`inbound connection from ([^\s]+)`)
+	xrayAccepted           = regexp.MustCompile(`from\s+([^\s]+)\s+accepted\s+([^\s]+)`)
+	xrayEmail              = regexp.MustCompile(`email:\s*([^\s]+)`)
+	userIDSuffix           = regexp.MustCompile(`(?:^|@)([1-9][0-9]*)$`)
+	singBoxContextID       = regexp.MustCompile(`\[(\d+)(?:\s+[^\]]+)?\]`)
+	singBoxSource          = regexp.MustCompile(`inbound connection from ([^\s]+)`)
 	singBoxUserDestination = regexp.MustCompile(`\]: \[([^\]]+)\] inbound(?: packet)? connection to ([^\s]+)`)
+	singBoxAuditIdentity   = regexp.MustCompile(`audit connection user_id=([0-9]+) source=([^\s]+) destination=([^\s]+) domain=([^\s]*)`)
 )
 
 func main() {
@@ -135,14 +138,17 @@ func main() {
 	flag.Parse()
 
 	cfg, err := loadConfig(*configPath)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 	collector := &Collector{
-		cfg: cfg,
-		client: &http.Client{Timeout: 8 * time.Second},
-		counters: make(map[string]counter),
-		singBoxContexts: make(map[string]singBoxLogContext),
-		singBoxIdentities: make(map[string]singBoxIdentity),
-		startedTargets: make(map[string]*managedTarget),
+		cfg:                 cfg,
+		client:              &http.Client{Timeout: 8 * time.Second},
+		counters:            make(map[string]counter),
+		singBoxContexts:     make(map[string]singBoxLogContext),
+		singBoxIdentities:   make(map[string]singBoxIdentity),
+		singBoxRecentUsers:  make(map[string]singBoxIdentity),
+		startedTargets:      make(map[string]*managedTarget),
 		startedJournalUnits: make(map[string]bool),
 	}
 
@@ -157,14 +163,26 @@ func main() {
 
 func loadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path)
-	if err != nil { return Config{}, fmt.Errorf("read config: %w", err) }
+	if err != nil {
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil { return Config{}, fmt.Errorf("parse config: %w", err) }
-	if cfg.PanelEventURL == "" || cfg.WebhookSecret == "" { return Config{}, errors.New("panel_event_url and webhook_secret are required") }
-	if len(cfg.Targets) == 0 && len(cfg.ManifestPaths) == 0 { return Config{}, errors.New("at least one target or manifest_path is required") }
-	if cfg.IntervalSeconds < 1 { cfg.IntervalSeconds = 2 }
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse config: %w", err)
+	}
+	if cfg.PanelEventURL == "" || cfg.WebhookSecret == "" {
+		return Config{}, errors.New("panel_event_url and webhook_secret are required")
+	}
+	if len(cfg.Targets) == 0 && len(cfg.ManifestPaths) == 0 {
+		return Config{}, errors.New("at least one target or manifest_path is required")
+	}
+	if cfg.IntervalSeconds < 1 {
+		cfg.IntervalSeconds = 2
+	}
 	for i := range cfg.Targets {
-		if cfg.Targets[i].NodeID == "" { return Config{}, fmt.Errorf("targets[%d].node_id is required", i) }
+		if cfg.Targets[i].NodeID == "" {
+			return Config{}, fmt.Errorf("targets[%d].node_id is required", i)
+		}
 	}
 	return cfg, nil
 }
@@ -203,7 +221,12 @@ func (c *Collector) syncTargets(owner string, targets []Target) {
 		}
 		wanted[targetKey(target)] = target
 	}
-	type launch struct { target Target; ctx context.Context; xray bool; journal bool }
+	type launch struct {
+		target  Target
+		ctx     context.Context
+		xray    bool
+		journal bool
+	}
 	var launches []launch
 	c.startMu.Lock()
 	for key, managed := range c.startedTargets {
@@ -251,7 +274,9 @@ func (c *Collector) pollSingBox(ctx context.Context, target Target) {
 	ticker := time.NewTicker(time.Duration(c.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
 	for {
-		if err := c.collectSingBox(target); err != nil { log.Printf("sing-box %s: %v", target.NodeID, err) }
+		if err := c.collectSingBox(target); err != nil {
+			log.Printf("sing-box %s: %v", target.NodeID, err)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -262,18 +287,31 @@ func (c *Collector) pollSingBox(ctx context.Context, target Target) {
 
 func (c *Collector) collectSingBox(target Target) error {
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(target.ClashAPI, "/")+"/connections", nil)
-	if err != nil { return err }
-	if target.ClashSecret != "" { req.Header.Set("Authorization", "Bearer "+target.ClashSecret) }
+	if err != nil {
+		return err
+	}
+	if target.ClashSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+target.ClashSecret)
+	}
 	res, err := c.client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK { body, _ := io.ReadAll(io.LimitReader(res.Body, 1024)); return fmt.Errorf("connections API returned %s: %s", res.Status, strings.TrimSpace(string(body))) }
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 1024))
+		return fmt.Errorf("connections API returned %s: %s", res.Status, strings.TrimSpace(string(body)))
+	}
 	var payload ClashResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil { return fmt.Errorf("decode connections: %w", err) }
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return fmt.Errorf("decode connections: %w", err)
+	}
 
 	seen := make(map[string]bool, len(payload.Connections))
 	for _, conn := range payload.Connections {
-		if conn.ID == "" { continue }
+		if conn.ID == "" {
+			continue
+		}
 		key := target.NodeID + ":" + conn.ID
 		seen[key] = true
 		c.mu.Lock()
@@ -285,17 +323,31 @@ func (c *Collector) collectSingBox(target Target) error {
 		eventType := "start"
 		if exists {
 			eventType = "delta"
-			if conn.Upload >= previous.up { upDelta = conn.Upload - previous.up } else { upDelta = conn.Upload }
-			if conn.Download >= previous.down { downDelta = conn.Download - previous.down } else { downDelta = conn.Download }
-			if upDelta == 0 && downDelta == 0 { continue }
+			if conn.Upload >= previous.up {
+				upDelta = conn.Upload - previous.up
+			} else {
+				upDelta = conn.Upload
+			}
+			if conn.Download >= previous.down {
+				downDelta = conn.Download - previous.down
+			} else {
+				downDelta = conn.Download
+			}
+			if upDelta == 0 && downDelta == 0 {
+				continue
+			}
 		}
 		event := c.eventFromClash(target, conn, eventType, upDelta, downDelta)
-		if err := c.post(event); err != nil { return err }
+		if err := c.post(event); err != nil {
+			return err
+		}
 	}
 
 	c.mu.Lock()
 	for key := range c.counters {
-		if strings.HasPrefix(key, target.NodeID+":") && !seen[key] { delete(c.counters, key) }
+		if strings.HasPrefix(key, target.NodeID+":") && !seen[key] {
+			delete(c.counters, key)
+		}
 	}
 	c.mu.Unlock()
 	return nil
@@ -303,10 +355,16 @@ func (c *Collector) collectSingBox(target Target) error {
 
 func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventType string, upload, download uint64) Event {
 	destination := conn.Metadata.Host
-	if destination == "" { destination = conn.Metadata.DestinationIP }
-	if conn.Metadata.DestinationPort != "" && destination != "" { destination += ":" + conn.Metadata.DestinationPort }
+	if destination == "" {
+		destination = conn.Metadata.DestinationIP
+	}
+	if conn.Metadata.DestinationPort != "" && destination != "" {
+		destination += ":" + conn.Metadata.DestinationPort
+	}
 	source := conn.Metadata.SourceIP
-	if conn.Metadata.SourcePort != "" && source != "" { source += ":" + conn.Metadata.SourcePort }
+	if conn.Metadata.SourcePort != "" && source != "" {
+		source += ":" + conn.Metadata.SourcePort
+	}
 	start := conn.Start.UTC().Format(time.RFC3339Nano)
 	eventID := eventHash(target.NodeID, conn.ID, start, strconv.FormatUint(conn.Upload, 10), strconv.FormatUint(conn.Download, 10), eventType)
 	user := conn.Metadata.User
@@ -320,10 +378,14 @@ func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventTyp
 
 func panelRouteIdentity(rule string) (*int64, string) {
 	rule = strings.TrimSpace(rule)
-	if !strings.HasPrefix(rule, "panel-route-") { return nil, "" }
+	if !strings.HasPrefix(rule, "panel-route-") {
+		return nil, ""
+	}
 	raw := strings.TrimPrefix(rule, "panel-route-")
 	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 { return nil, rule }
+	if err != nil || id <= 0 {
+		return nil, rule
+	}
 	return &id, rule
 }
 
@@ -357,6 +419,30 @@ func (c *Collector) tailSingBoxJournal(unit string) {
 }
 
 func (c *Collector) handleSingBoxLogLine(unit, line string) {
+	if identityMatch := singBoxAuditIdentity.FindStringSubmatch(line); len(identityMatch) == 5 {
+		user := "@" + identityMatch[1]
+		source := identityMatch[2]
+		destinations := []string{identityMatch[3]}
+		if identityMatch[4] != "" {
+			if _, port, err := net.SplitHostPort(identityMatch[3]); err == nil && port != "" {
+				destinations = append(destinations, net.JoinHostPort(identityMatch[4], port))
+			}
+		}
+		c.mu.Lock()
+		for _, destination := range destinations {
+			identity := singBoxIdentity{
+				User:      user,
+				ExpiresAt: time.Now().Add(15 * time.Second),
+			}
+			c.singBoxIdentities[singBoxIdentityKey(unit, source, destination)] = identity
+			if c.singBoxRecentUsers == nil {
+				c.singBoxRecentUsers = make(map[string]singBoxIdentity)
+			}
+			c.singBoxRecentUsers[singBoxDestinationKey(unit, destination)] = identity
+		}
+		c.mu.Unlock()
+		return
+	}
 	contextMatch := singBoxContextID.FindStringSubmatch(line)
 	if len(contextMatch) != 2 {
 		return
@@ -376,7 +462,7 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 	c.singBoxContexts[contextKey] = entry
 	if entry.Source != "" && entry.User != "" && entry.Destination != "" {
 		c.singBoxIdentities[singBoxIdentityKey(unit, entry.Source, entry.Destination)] = singBoxIdentity{
-			User: entry.User,
+			User:      entry.User,
 			ExpiresAt: time.Now().Add(2 * time.Minute),
 		}
 	}
@@ -399,7 +485,11 @@ func (c *Collector) singBoxUser(target Target, source, destination string) strin
 	item, found := c.singBoxIdentities[key]
 	if !found || item.ExpiresAt.Before(time.Now()) {
 		delete(c.singBoxIdentities, key)
-		return ""
+		item, found = c.singBoxRecentUsers[singBoxDestinationKey(target.SingBoxJournalUnit, destination)]
+		if !found || item.ExpiresAt.Before(time.Now()) {
+			delete(c.singBoxRecentUsers, singBoxDestinationKey(target.SingBoxJournalUnit, destination))
+			return ""
+		}
 	}
 	return item.User
 }
@@ -408,17 +498,28 @@ func singBoxIdentityKey(unit, source, destination string) string {
 	return unit + "\x00" + strings.ToLower(strings.TrimSpace(source)) + "\x00" + strings.ToLower(strings.TrimSpace(destination))
 }
 
+func singBoxDestinationKey(unit, destination string) string {
+	return unit + "\x00" + strings.ToLower(strings.TrimSpace(destination))
+}
+
 func (c *Collector) tailXrayAccessLog(target Target) {
 	for {
-		if err := c.followFile(target); err != nil { log.Printf("xray %s: %v", target.NodeID, err); time.Sleep(3 * time.Second) }
+		if err := c.followFile(target); err != nil {
+			log.Printf("xray %s: %v", target.NodeID, err)
+			time.Sleep(3 * time.Second)
+		}
 	}
 }
 
 func (c *Collector) followFile(target Target) error {
 	file, err := os.Open(target.XrayAccessLog)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer file.Close()
-	if _, err := file.Seek(0, io.SeekEnd); err != nil { return err }
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
 	reader := bufio.NewReader(file)
 	for {
 		line, err := reader.ReadString('\n')
@@ -426,43 +527,82 @@ func (c *Collector) followFile(target Target) error {
 			c.handleXrayLine(target, strings.TrimSpace(line))
 			continue
 		}
-		if !errors.Is(err, io.EOF) { return err }
+		if !errors.Is(err, io.EOF) {
+			return err
+		}
 		time.Sleep(time.Second)
 		stat, statErr := file.Stat()
-		if statErr != nil { return statErr }
+		if statErr != nil {
+			return statErr
+		}
 		position, _ := file.Seek(0, io.SeekCurrent)
-		if stat.Size() < position { return nil } // rotated or truncated; reopen it.
+		if stat.Size() < position {
+			return nil
+		} // rotated or truncated; reopen it.
 	}
 }
 
 func (c *Collector) handleXrayLine(target Target, line string) {
 	matches := xrayAccepted.FindStringSubmatch(line)
-	if len(matches) != 3 { return }
+	if len(matches) != 3 {
+		return
+	}
 	email := ""
-	if user := xrayEmail.FindStringSubmatch(line); len(user) == 2 { email = user[1] }
+	if user := xrayEmail.FindStringSubmatch(line); len(user) == 2 {
+		email = user[1]
+	}
 	event := Event{EventID: eventHash(target.NodeID, line), ConnectionID: "xray-" + eventHash(target.NodeID, line), EventType: "start", UserID: parseUserID(email), NodeID: target.NodeID, ClientSource: matches[1], OccurredAt: time.Now().UTC(), Action: "observe", Destination: matches[2], Network: networkOf(matches[2]), Protocol: "", Metadata: map[string]any{"kernel": "xray", "email": email}}
-	if err := c.post(event); err != nil { log.Printf("xray %s post event: %v", target.NodeID, err) }
+	if err := c.post(event); err != nil {
+		log.Printf("xray %s post event: %v", target.NodeID, err)
+	}
 }
 
 func (c *Collector) post(event Event) error {
 	body, err := json.Marshal(event)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(c.cfg.WebhookSecret))
 	_, _ = mac.Write([]byte(timestamp + "."))
 	_, _ = mac.Write(body)
 	req, err := http.NewRequest(http.MethodPost, c.cfg.PanelEventURL, bytes.NewReader(body))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Audit-Timestamp", timestamp)
 	req.Header.Set("X-Audit-Signature", hex.EncodeToString(mac.Sum(nil)))
 	res, err := c.client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode > 299 { response, _ := io.ReadAll(io.LimitReader(res.Body, 1024)); return fmt.Errorf("panel returned %s: %s", res.Status, strings.TrimSpace(string(response))) }
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		response, _ := io.ReadAll(io.LimitReader(res.Body, 1024))
+		return fmt.Errorf("panel returned %s: %s", res.Status, strings.TrimSpace(string(response)))
+	}
 	return nil
 }
 
-func eventHash(parts ...string) string { sum := sha256.Sum256([]byte(strings.Join(parts, "\x00"))); return hex.EncodeToString(sum[:])[:64] }
-func parseUserID(value string) *int { match := userIDSuffix.FindStringSubmatch(value); if len(match) != 2 { return nil }; n, err := strconv.Atoi(match[1]); if err != nil { return nil }; return &n }
-func networkOf(destination string) string { if strings.HasPrefix(destination, "udp:") { return "udp" }; return "tcp" }
+func eventHash(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])[:64]
+}
+func parseUserID(value string) *int {
+	match := userIDSuffix.FindStringSubmatch(value)
+	if len(match) != 2 {
+		return nil
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+func networkOf(destination string) string {
+	if strings.HasPrefix(destination, "udp:") {
+		return "udp"
+	}
+	return "tcp"
+}

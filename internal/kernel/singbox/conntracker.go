@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -211,11 +212,22 @@ func (t *ConnTracker) RoutedConnection(
 ) net.Conn {
 	uuid := metadata.User
 	sourceIP := metadata.Source.Addr.String()
+	destination := metadata.Destination.String()
+	if metadata.Domain != "" && metadata.Destination.Port > 0 {
+		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
+	}
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
 	t.usersMu.RUnlock()
+	if uid > 0 {
+		nlog.Core().Info("audit connection",
+			"user_id", uid,
+			"source", metadata.Source.String(),
+			"destination", destination,
+			"domain", metadata.Domain)
+	}
 
 	// Device limit gate-keeping
 	if dlf := t.deviceLimitFunc.Load(); dlf != nil {
@@ -269,11 +281,22 @@ func (t *ConnTracker) RoutedPacketConnection(
 ) N.PacketConn {
 	uuid := metadata.User
 	sourceIP := metadata.Source.Addr.String()
+	destination := metadata.Destination.String()
+	if metadata.Domain != "" && metadata.Destination.Port > 0 {
+		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
+	}
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
 	t.usersMu.RUnlock()
+	if uid > 0 {
+		nlog.Core().Info("audit connection",
+			"user_id", uid,
+			"source", metadata.Source.String(),
+			"destination", destination,
+			"domain", metadata.Domain)
+	}
 
 	// Device limit gate-keeping
 	if dlf := t.deviceLimitFunc.Load(); dlf != nil {

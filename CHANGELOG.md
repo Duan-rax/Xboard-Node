@@ -24,6 +24,11 @@ All notable fork changes are recorded here. Release dates use the
 - Report the kernel name, effective embedded module version and structured
   route feature manifest in every node status update for panel capability
   negotiation.
+- Emit a connection-level audit line containing only the numeric panel user ID,
+  source, destination and sniffed domain so the native traffic-audit collector
+  can attribute sing-box connections when the Clash API omits the user.
+- Let the traffic-audit collector correlate AnyTLS user IDs by destination
+  within a short TTL and associate Xray access-log records with panel users.
 - Split managed kernel generation into stable compiler boundaries:
   `route_compiler.go`, `outbound_compiler.go`, `reality_override.go` for Xray,
   and `route_compiler.go`, `outbound_compiler.go`, `rule_set_compiler.go` for
