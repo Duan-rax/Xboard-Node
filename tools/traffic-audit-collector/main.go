@@ -100,8 +100,9 @@ type singBoxLogContext struct {
 }
 
 type singBoxIdentity struct {
-	User      string
-	ExpiresAt time.Time
+	User         string
+	ConnectionID string
+	ExpiresAt    time.Time
 }
 
 type managedTarget struct {
@@ -123,6 +124,7 @@ type Collector struct {
 	counters            map[string]counter
 	singBoxContexts     map[string]singBoxLogContext
 	singBoxIdentities   map[string]singBoxIdentity
+	singBoxConnections  map[string]singBoxIdentity
 	singBoxRecentUsers  map[string]singBoxIdentity
 	pendingEvents       map[string]pendingAuditEvent
 	startMu             sync.Mutex
@@ -133,11 +135,12 @@ type Collector struct {
 var (
 	xrayAccepted           = regexp.MustCompile(`from\s+([^\s]+)\s+accepted\s+([^\s]+)`)
 	xrayEmail              = regexp.MustCompile(`email:\s*([^\s]+)`)
+	xrayTraffic            = regexp.MustCompile(`\bup=([0-9]+)\s+down=([0-9]+)\b`)
 	userIDSuffix           = regexp.MustCompile(`(?:^|@)([1-9][0-9]*)$`)
 	singBoxContextID       = regexp.MustCompile(`\[(\d+)(?:\s+[^\]]+)?\]`)
 	singBoxSource          = regexp.MustCompile(`inbound connection from ([^\s]+)`)
 	singBoxUserDestination = regexp.MustCompile(`\]: \[([^\]]+)\] inbound(?: packet)? connection to ([^\s]+)`)
-	singBoxAuditIdentity   = regexp.MustCompile(`audit connection user_id=([0-9]+) source=([^\s]+) destination=([^\s]+) domain=([^\s]*)`)
+	singBoxAuditIdentity   = regexp.MustCompile(`audit connection user_id=([0-9]+)(?: connection_id=([^\s]+))? source=([^\s]+) destination=([^\s]+) domain=([^\s]*)`)
 )
 
 func main() {
@@ -154,6 +157,7 @@ func main() {
 		counters:            make(map[string]counter),
 		singBoxContexts:     make(map[string]singBoxLogContext),
 		singBoxIdentities:   make(map[string]singBoxIdentity),
+		singBoxConnections:  make(map[string]singBoxIdentity),
 		singBoxRecentUsers:  make(map[string]singBoxIdentity),
 		pendingEvents:       make(map[string]pendingAuditEvent),
 		startedTargets:      make(map[string]*managedTarget),
@@ -388,7 +392,13 @@ func (c *Collector) resolvePendingEvent(item pendingAuditEvent) pendingAuditEven
 	if item.Event.UserID != nil {
 		return item
 	}
-	user := c.singBoxUser(item.Target, item.Event.ClientSource, item.Event.Destination)
+	connectionID, _ := item.Event.Metadata["clash_connection_id"].(string)
+	user := c.singBoxUserByConnection(item.Target, connectionID)
+	matchMethod := "connection_id"
+	if user == "" {
+		user = c.singBoxUser(item.Target, item.Event.ClientSource, item.Event.Destination)
+		matchMethod = "legacy_destination"
+	}
 	if user == "" {
 		return item
 	}
@@ -397,6 +407,7 @@ func (c *Collector) resolvePendingEvent(item pendingAuditEvent) pendingAuditEven
 		item.Event.Metadata = make(map[string]any)
 	}
 	item.Event.Metadata["user"] = user
+	item.Event.Metadata["user_match"] = matchMethod
 	return item
 }
 
@@ -443,10 +454,16 @@ func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventTyp
 	start := conn.Start.UTC().Format(time.RFC3339Nano)
 	eventID := eventHash(target.NodeID, conn.ID, start, strconv.FormatUint(conn.Upload, 10), strconv.FormatUint(conn.Download, 10), eventType)
 	user := conn.Metadata.User
+	matchMethod := "clash_metadata"
+	if user == "" {
+		user = c.singBoxUserByConnection(target, conn.ID)
+		matchMethod = "connection_id"
+	}
 	if user == "" {
 		user = c.singBoxUser(target, source, destination)
+		matchMethod = "legacy_destination"
 	}
-	metadata := map[string]any{"kernel": "sing-box", "inbound": conn.Metadata.Inbound, "rule": conn.Rule, "type": conn.Metadata.Type, "user": user}
+	metadata := map[string]any{"kernel": "sing-box", "inbound": conn.Metadata.Inbound, "rule": conn.Rule, "type": conn.Metadata.Type, "user": user, "user_match": matchMethod, "clash_connection_id": conn.ID}
 	routeID, routeTag := panelRouteIdentity(conn.Rule)
 	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID, start), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, RouteID: routeID, RouteTag: routeTag, RouteSource: "kernel", Outbound: strings.Join(conn.Chains, " > "), Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
 }
@@ -494,13 +511,14 @@ func (c *Collector) tailSingBoxJournal(unit string) {
 }
 
 func (c *Collector) handleSingBoxLogLine(unit, line string) {
-	if identityMatch := singBoxAuditIdentity.FindStringSubmatch(line); len(identityMatch) == 5 {
+	if identityMatch := singBoxAuditIdentity.FindStringSubmatch(line); len(identityMatch) == 6 {
 		user := "@" + identityMatch[1]
-		source := identityMatch[2]
-		destinations := []string{identityMatch[3]}
-		if identityMatch[4] != "" {
-			if _, port, err := net.SplitHostPort(identityMatch[3]); err == nil && port != "" {
-				destinations = append(destinations, net.JoinHostPort(identityMatch[4], port))
+		connectionID := identityMatch[2]
+		source := identityMatch[3]
+		destinations := []string{identityMatch[4]}
+		if identityMatch[5] != "" {
+			if _, port, err := net.SplitHostPort(identityMatch[4]); err == nil && port != "" {
+				destinations = append(destinations, net.JoinHostPort(identityMatch[5], port))
 			}
 		}
 		c.mu.Lock()
@@ -510,6 +528,12 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 				ExpiresAt: time.Now().Add(15 * time.Second),
 			}
 			c.singBoxIdentities[singBoxIdentityKey(unit, source, destination)] = identity
+			if connectionID != "" {
+				if c.singBoxConnections == nil {
+					c.singBoxConnections = make(map[string]singBoxIdentity)
+				}
+				c.singBoxConnections[singBoxConnectionKey(unit, connectionID)] = identity
+			}
 			if c.singBoxRecentUsers == nil {
 				c.singBoxRecentUsers = make(map[string]singBoxIdentity)
 			}
@@ -546,6 +570,11 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 			delete(c.singBoxIdentities, key)
 		}
 	}
+	for key, item := range c.singBoxConnections {
+		if item.ExpiresAt.Before(time.Now()) {
+			delete(c.singBoxConnections, key)
+		}
+	}
 	for key, item := range c.singBoxContexts {
 		if item.UpdatedAt.Before(time.Now().Add(-2 * time.Minute)) {
 			delete(c.singBoxContexts, key)
@@ -569,12 +598,31 @@ func (c *Collector) singBoxUser(target Target, source, destination string) strin
 	return item.User
 }
 
+func (c *Collector) singBoxUserByConnection(target Target, connectionID string) string {
+	if connectionID == "" {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := singBoxConnectionKey(target.SingBoxJournalUnit, connectionID)
+	item, found := c.singBoxConnections[key]
+	if !found || item.ExpiresAt.Before(time.Now()) {
+		delete(c.singBoxConnections, key)
+		return ""
+	}
+	return item.User
+}
+
 func singBoxIdentityKey(unit, source, destination string) string {
 	return unit + "\x00" + strings.ToLower(strings.TrimSpace(source)) + "\x00" + strings.ToLower(strings.TrimSpace(destination))
 }
 
 func singBoxDestinationKey(unit, destination string) string {
 	return unit + "\x00" + strings.ToLower(strings.TrimSpace(destination))
+}
+
+func singBoxConnectionKey(unit, connectionID string) string {
+	return unit + "\x00" + strings.TrimSpace(connectionID)
 }
 
 func (c *Collector) tailXrayAccessLog(target Target) {
@@ -618,17 +666,48 @@ func (c *Collector) followFile(target Target) error {
 }
 
 func (c *Collector) handleXrayLine(target Target, line string) {
+	event := parseXrayLine(target, line)
+	if event == nil {
+		return
+	}
+	if err := c.post(*event); err != nil {
+		log.Printf("xray %s post event: %v", target.NodeID, err)
+	}
+}
+
+func parseXrayLine(target Target, line string) *Event {
 	matches := xrayAccepted.FindStringSubmatch(line)
 	if len(matches) != 3 {
-		return
+		return nil
 	}
 	email := ""
 	if user := xrayEmail.FindStringSubmatch(line); len(user) == 2 {
 		email = user[1]
 	}
-	event := Event{EventID: eventHash(target.NodeID, line), ConnectionID: "xray-" + eventHash(target.NodeID, line), EventType: "start", UserID: parseUserID(email), NodeID: target.NodeID, ClientSource: matches[1], OccurredAt: time.Now().UTC(), Action: "observe", Destination: matches[2], Network: networkOf(matches[2]), Protocol: "", Metadata: map[string]any{"kernel": "xray", "email": email}}
-	if err := c.post(event); err != nil {
-		log.Printf("xray %s post event: %v", target.NodeID, err)
+	var upload, download uint64
+	eventType := "start"
+	metadata := map[string]any{"kernel": "xray", "email": email, "byte_counters": false}
+	if traffic := xrayTraffic.FindStringSubmatch(line); len(traffic) == 3 {
+		upload, _ = strconv.ParseUint(traffic[1], 10, 64)
+		download, _ = strconv.ParseUint(traffic[2], 10, 64)
+		eventType = "completed"
+		metadata["byte_counters"] = true
+	}
+	lineHash := eventHash(target.NodeID, line)
+	return &Event{
+		EventID:       lineHash,
+		ConnectionID:  "xray-" + lineHash,
+		EventType:     eventType,
+		UserID:        parseUserID(email),
+		NodeID:        target.NodeID,
+		ClientSource:  matches[1],
+		OccurredAt:    time.Now().UTC(),
+		Action:        "observe",
+		Destination:   matches[2],
+		Network:       networkOf(matches[2]),
+		UploadBytes:   upload,
+		DownloadBytes: download,
+		Metadata:      metadata,
 	}
 }
 

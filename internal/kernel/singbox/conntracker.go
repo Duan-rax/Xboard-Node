@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
 	"github.com/sagernet/sing/common/buf"
 	singM "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -216,6 +217,7 @@ func (t *ConnTracker) RoutedConnection(
 	if metadata.Domain != "" && metadata.Destination.Port > 0 {
 		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
 	}
+	connID := auditConnectionID(conn, t.nextID())
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
@@ -224,6 +226,7 @@ func (t *ConnTracker) RoutedConnection(
 	if uid > 0 {
 		nlog.Core().Info("audit connection",
 			"user_id", uid,
+			"connection_id", connID,
 			"source", metadata.Source.String(),
 			"destination", destination,
 			"domain", metadata.Domain)
@@ -245,8 +248,6 @@ func (t *ConnTracker) RoutedConnection(
 	if us != nil {
 		us.addConn(sourceIP)
 	}
-
-	connID := t.nextID()
 
 	// Store conn reference for force-close support
 	t.usersMu.Lock()
@@ -285,6 +286,7 @@ func (t *ConnTracker) RoutedPacketConnection(
 	if metadata.Domain != "" && metadata.Destination.Port > 0 {
 		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
 	}
+	connID := auditConnectionID(conn, t.nextID())
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
@@ -293,6 +295,7 @@ func (t *ConnTracker) RoutedPacketConnection(
 	if uid > 0 {
 		nlog.Core().Info("audit connection",
 			"user_id", uid,
+			"connection_id", connID,
 			"source", metadata.Source.String(),
 			"destination", destination,
 			"domain", metadata.Domain)
@@ -314,8 +317,6 @@ func (t *ConnTracker) RoutedPacketConnection(
 		us.addConn(sourceIP)
 	}
 
-	connID := t.nextID()
-
 	var lim *rate.Limiter
 	if slf := t.speedLimitFunc.Load(); slf != nil {
 		lim = (*slf)(uuid)
@@ -331,6 +332,29 @@ func (t *ConnTracker) RoutedPacketConnection(
 		limiter:    lim,
 		ctx:        ctx,
 	}
+}
+
+// auditConnectionID uses the Clash API connection UUID when it is already
+// present in the connection wrapper chain. This lets the external collector
+// join the identity log to /connections deterministically instead of matching
+// only by source and destination.
+func auditConnectionID(connection any, fallback string) string {
+	current := connection
+	for depth := 0; current != nil && depth < 12; depth++ {
+		if provider, ok := current.(interface {
+			Metadata() *trafficontrol.TrackerMetadata
+		}); ok {
+			if metadata := provider.Metadata(); metadata != nil && metadata.ID.String() != "" {
+				return metadata.ID.String()
+			}
+		}
+		wrapper, ok := current.(interface{ Upstream() any })
+		if !ok {
+			break
+		}
+		current = wrapper.Upstream()
+	}
+	return fallback
 }
 
 // checkDeviceGate rejects connections exceeding device limit.

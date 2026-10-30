@@ -94,6 +94,19 @@ journalctl -u traffic-audit-collector -n 100 --no-pager
 
 无需改 collector 配置、无需重启 collector，也无需为面板 Node 单独创建 JSON 文件。
 
+## Connection identity correlation
+
+The sing-box audit identity line includes the Clash API connection UUID:
+
+```text
+audit connection user_id=7 connection_id=<uuid> source=... destination=... domain=...
+```
+
+The collector joins that line to `/connections` by the UUID first. Source and
+destination matching remains only as a legacy fallback for older Node builds,
+so two concurrent connections to the same destination cannot overwrite each
+other's user when both sides provide the stable connection UUID.
+
 ## Xray
 
 Xray 不使用 Clash API。Machine 自动清单只包含 sing-box Node；Xray 网站连接审计仍通过 `xray_access_log` 的静态 collector target 完成。

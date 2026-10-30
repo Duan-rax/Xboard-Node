@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/cedar2025/xboard-node/internal/config"
+	"github.com/gofrs/uuid/v5"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
 	singM "github.com/sagernet/sing/common/metadata"
 	"golang.org/x/time/rate"
 )
@@ -55,6 +57,14 @@ type testConn struct {
 	reads  [][]byte
 	writes [][]byte
 }
+
+type clashMetadataConn struct {
+	net.Conn
+	metadata trafficontrol.TrackerMetadata
+}
+
+func (c *clashMetadataConn) Metadata() *trafficontrol.TrackerMetadata { return &c.metadata }
+func (c *clashMetadataConn) Upstream() any                            { return c.Conn }
 
 func (c *testConn) Read(b []byte) (int, error) {
 	if len(c.reads) == 0 {
@@ -125,6 +135,20 @@ func TestConnTrackerRoutedConnectionTracksTrafficAndAliveIPs(t *testing.T) {
 	}
 	if connCount != 0 {
 		t.Fatalf("connCount after close = %d, want 0", connCount)
+	}
+}
+
+func TestAuditConnectionIDUsesClashMetadata(t *testing.T) {
+	id := uuid.Must(uuid.NewV4())
+	conn := &clashMetadataConn{
+		Conn:     &testConn{},
+		metadata: trafficontrol.TrackerMetadata{ID: id},
+	}
+	if got := auditConnectionID(conn, "fallback"); got != id.String() {
+		t.Fatalf("connection ID = %q, want %q", got, id.String())
+	}
+	if got := auditConnectionID(&testConn{}, "fallback"); got != "fallback" {
+		t.Fatalf("fallback connection ID = %q", got)
 	}
 }
 

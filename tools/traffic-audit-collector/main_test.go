@@ -9,6 +9,7 @@ func TestSingBoxJournalIdentityCorrelation(t *testing.T) {
 	collector := &Collector{
 		singBoxContexts:    make(map[string]singBoxLogContext),
 		singBoxIdentities:  make(map[string]singBoxIdentity),
+		singBoxConnections: make(map[string]singBoxIdentity),
 		singBoxRecentUsers: make(map[string]singBoxIdentity),
 	}
 	unit := "xboard-node"
@@ -23,11 +24,12 @@ func TestSingBoxJournalIdentityCorrelation(t *testing.T) {
 
 func TestSingBoxAuditConnectionIdentity(t *testing.T) {
 	collector := &Collector{
-		singBoxContexts:   make(map[string]singBoxLogContext),
-		singBoxIdentities: make(map[string]singBoxIdentity),
+		singBoxContexts:    make(map[string]singBoxLogContext),
+		singBoxIdentities:  make(map[string]singBoxIdentity),
+		singBoxConnections: make(map[string]singBoxIdentity),
 	}
 	unit := "xboard-node"
-	collector.handleSingBoxLogLine(unit, "INFO [core] audit connection user_id=7 source=203.0.113.8:52144 destination=1.1.1.1:443 domain=speed.cloudflare.com")
+	collector.handleSingBoxLogLine(unit, "INFO [core] audit connection user_id=7 connection_id=clash-id-7 source=203.0.113.8:52144 destination=1.1.1.1:443 domain=speed.cloudflare.com")
 
 	target := Target{NodeID: "jp-01", SingBoxJournalUnit: unit}
 	for _, destination := range []string{"1.1.1.1:443", "speed.cloudflare.com:443"} {
@@ -38,6 +40,9 @@ func TestSingBoxAuditConnectionIdentity(t *testing.T) {
 	if got := collector.singBoxUser(target, "198.51.100.2:55221", "speed.cloudflare.com:443"); got != "@7" {
 		t.Fatalf("destination fallback user = %q", got)
 	}
+	if got := collector.singBoxUserByConnection(target, "clash-id-7"); got != "@7" {
+		t.Fatalf("connection ID user = %q", got)
+	}
 	if got := parseUserID("@7"); got == nil || *got != 7 {
 		t.Fatalf("parsed audit user = %v", got)
 	}
@@ -47,6 +52,7 @@ func TestPendingEventResolvesLateIdentity(t *testing.T) {
 	collector := &Collector{
 		singBoxContexts:    make(map[string]singBoxLogContext),
 		singBoxIdentities:  make(map[string]singBoxIdentity),
+		singBoxConnections: make(map[string]singBoxIdentity),
 		singBoxRecentUsers: make(map[string]singBoxIdentity),
 		pendingEvents:      make(map[string]pendingAuditEvent),
 	}
@@ -57,14 +63,14 @@ func TestPendingEventResolvesLateIdentity(t *testing.T) {
 			EventID:      "event-late-user",
 			ClientSource: "203.0.113.8:52144",
 			Destination:  "speed.cloudflare.com:443",
-			Metadata:     make(map[string]any),
+			Metadata:     map[string]any{"clash_connection_id": "clash-id-9"},
 		},
 		ExpiresAt: time.Now().Add(20 * time.Second),
 	}
 
 	collector.handleSingBoxLogLine(
 		"xboard-node",
-		"INFO [core] audit connection user_id=9 source=203.0.113.8:52144 destination=speed.cloudflare.com:443 domain=speed.cloudflare.com",
+		"INFO [core] audit connection user_id=9 connection_id=clash-id-9 source=203.0.113.8:52144 destination=speed.cloudflare.com:443 domain=speed.cloudflare.com",
 	)
 	resolved := collector.resolvePendingEvent(item)
 	if resolved.Event.UserID == nil || *resolved.Event.UserID != 9 {
@@ -72,6 +78,39 @@ func TestPendingEventResolvesLateIdentity(t *testing.T) {
 	}
 	if resolved.Event.Metadata["user"] != "@9" {
 		t.Fatalf("late event metadata user = %v", resolved.Event.Metadata["user"])
+	}
+	if resolved.Event.Metadata["user_match"] != "connection_id" {
+		t.Fatalf("late event match method = %v", resolved.Event.Metadata["user_match"])
+	}
+}
+
+func TestConnectionIDWinsWhenSourceAndDestinationAreAmbiguous(t *testing.T) {
+	collector := &Collector{
+		singBoxContexts:    make(map[string]singBoxLogContext),
+		singBoxIdentities:  make(map[string]singBoxIdentity),
+		singBoxConnections: make(map[string]singBoxIdentity),
+		singBoxRecentUsers: make(map[string]singBoxIdentity),
+		pendingEvents:      make(map[string]pendingAuditEvent),
+	}
+	unit := "xboard-node"
+	collector.handleSingBoxLogLine(unit, "INFO [core] audit connection user_id=7 connection_id=clash-7 source=203.0.113.8:52144 destination=example.com:443 domain=example.com")
+	collector.handleSingBoxLogLine(unit, "INFO [core] audit connection user_id=8 connection_id=clash-8 source=203.0.113.8:52144 destination=example.com:443 domain=example.com")
+
+	item := pendingAuditEvent{
+		Target: Target{NodeID: "jp-01", SingBoxJournalUnit: unit},
+		Event: Event{
+			ClientSource: "203.0.113.8:52144",
+			Destination:  "example.com:443",
+			Metadata:     map[string]any{"clash_connection_id": "clash-8"},
+		},
+		ExpiresAt: time.Now().Add(20 * time.Second),
+	}
+	resolved := collector.resolvePendingEvent(item)
+	if resolved.Event.UserID == nil || *resolved.Event.UserID != 8 {
+		t.Fatalf("resolved user = %v, want 8", resolved.Event.UserID)
+	}
+	if resolved.Event.Metadata["user_match"] != "connection_id" {
+		t.Fatalf("match method = %v", resolved.Event.Metadata["user_match"])
 	}
 }
 
@@ -82,5 +121,47 @@ func TestPanelRouteIdentity(t *testing.T) {
 	}
 	if id, tag := panelRouteIdentity("rule_set=cn"); id != nil || tag != "" {
 		t.Fatalf("non-panel rule must not be mapped: id=%v tag=%q", id, tag)
+	}
+}
+
+func TestParseXrayLineWithConnectionBytes(t *testing.T) {
+	target := Target{NodeID: "28"}
+	event := parseXrayLine(
+		target,
+		"2026/10/31 12:34:56 from 203.0.113.8:52144 accepted tcp:example.com:443 [vless-in >> direct] email: user@7 up=1024 down=8192",
+	)
+	if event == nil {
+		t.Fatal("expected Xray event")
+	}
+	if event.EventType != "completed" {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	if event.UserID == nil || *event.UserID != 7 {
+		t.Fatalf("user = %v", event.UserID)
+	}
+	if event.UploadBytes != 1024 || event.DownloadBytes != 8192 {
+		t.Fatalf("bytes = up:%d down:%d", event.UploadBytes, event.DownloadBytes)
+	}
+	if event.Metadata["byte_counters"] != true {
+		t.Fatalf("byte counter metadata = %v", event.Metadata["byte_counters"])
+	}
+}
+
+func TestParseLegacyXrayLineRemainsSupported(t *testing.T) {
+	event := parseXrayLine(
+		Target{NodeID: "28"},
+		"2026/10/31 12:34:56 from 203.0.113.8:52144 accepted tcp:example.com:443 [vless-in >> direct] email: user@7",
+	)
+	if event == nil {
+		t.Fatal("expected legacy Xray event")
+	}
+	if event.EventType != "start" {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	if event.UploadBytes != 0 || event.DownloadBytes != 0 {
+		t.Fatalf("legacy bytes must remain unknown, got up:%d down:%d", event.UploadBytes, event.DownloadBytes)
+	}
+	if event.Metadata["byte_counters"] != false {
+		t.Fatalf("byte counter metadata = %v", event.Metadata["byte_counters"])
 	}
 }
