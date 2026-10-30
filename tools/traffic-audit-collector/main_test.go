@@ -16,3 +16,13 @@ func TestSingBoxJournalIdentityCorrelation(t *testing.T) {
 		t.Fatalf("resolved sing-box user = %q", got)
 	}
 }
+
+func TestPanelRouteIdentity(t *testing.T) {
+	id, tag := panelRouteIdentity("panel-route-38")
+	if id == nil || *id != 38 || tag != "panel-route-38" {
+		t.Fatalf("unexpected route identity: id=%v tag=%q", id, tag)
+	}
+	if id, tag := panelRouteIdentity("rule_set=cn"); id != nil || tag != "" {
+		t.Fatalf("non-panel rule must not be mapped: id=%v tag=%q", id, tag)
+	}
+}

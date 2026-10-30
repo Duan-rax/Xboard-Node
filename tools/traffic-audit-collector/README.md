@@ -1,6 +1,6 @@
 # Traffic Audit Collector
 
-This sidecar turns node-side connection information into signed events for the `RiskAudit` Xboard plugin. It never changes client subscriptions or client configurations.
+This sidecar turns node-side connection information into signed events for the native Xboard Security Audit module. It does not require the legacy RiskAudit plugin and never changes client subscriptions or client configurations.
 
 ## Sing-box: full domain/IP connection accounting
 
@@ -46,8 +46,8 @@ targets or panel node IDs:
 
 ```json
 {
-  "panel_event_url": "https://panel.example.com/api/v1/risk-audit/events",
-  "webhook_secret": "same-plugin-secret",
+  "panel_event_url": "https://panel.example.com/api/v1/traffic-audit/events",
+"webhook_secret": "native-security-audit-secret",
   "interval_seconds": 2,
   "manifest_paths": ["/etc/xboard-node/traffic-audit-targets.json"]
 }
@@ -90,7 +90,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now traffic-audit-collector
 ```
 
-Set `panel_event_url` to the Xboard panel endpoint and set `webhook_secret` to the same value configured in the RiskAudit plugin. Keep `config.json` mode `0600`.
+Set `panel_event_url` to the native traffic-audit endpoint and use the Secret shown under **安全审计 → 审计接收设置**. Keep `config.json` mode `0600`.
 
 ## Retention and limits
 

@@ -1,6 +1,6 @@
 {
-  "panel_event_url": "https://panel.example.com/api/v1/risk-audit/events",
-  "webhook_secret": "replace-with-the-plugin-webhook-secret",
+  "panel_event_url": "https://panel.example.com/api/v1/traffic-audit/events",
+  "webhook_secret": "replace-with-native-security-audit-secret",
   "interval_seconds": 2,
   "manifest_paths": [
     "/etc/xboard-node/traffic-audit-targets.json"

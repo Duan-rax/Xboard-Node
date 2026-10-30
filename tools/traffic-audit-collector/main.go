@@ -50,6 +50,10 @@ type Event struct {
 	OccurredAt    time.Time      `json:"occurred_at"`
 	Action        string         `json:"action"`
 	RuleTag       string         `json:"rule_tag,omitempty"`
+	RouteID       *int64         `json:"route_id,omitempty"`
+	RouteTag      string         `json:"route_tag,omitempty"`
+	RouteSource   string         `json:"route_source,omitempty"`
+	Outbound      string         `json:"outbound,omitempty"`
 	Destination   string         `json:"destination,omitempty"`
 	DestinationIP string         `json:"destination_ip,omitempty"`
 	Network       string         `json:"network,omitempty"`
@@ -69,6 +73,7 @@ type ClashConnection struct {
 	Download uint64        `json:"download"`
 	Start    time.Time     `json:"start"`
 	Rule     string        `json:"rule"`
+	Chains   []string      `json:"chains"`
 	Metadata ClashMetadata `json:"metadata"`
 }
 
@@ -309,7 +314,17 @@ func (c *Collector) eventFromClash(target Target, conn ClashConnection, eventTyp
 		user = c.singBoxUser(target, source, destination)
 	}
 	metadata := map[string]any{"kernel": "sing-box", "inbound": conn.Metadata.Inbound, "rule": conn.Rule, "type": conn.Metadata.Type, "user": user}
-	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID, start), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
+	routeID, routeTag := panelRouteIdentity(conn.Rule)
+	return Event{EventID: eventID, ConnectionID: "singbox-" + eventHash(target.NodeID, conn.ID, start), EventType: eventType, UserID: parseUserID(user), NodeID: target.NodeID, ClientSource: source, OccurredAt: time.Now().UTC(), Action: "observe", RuleTag: conn.Rule, RouteID: routeID, RouteTag: routeTag, RouteSource: "kernel", Outbound: strings.Join(conn.Chains, " > "), Destination: destination, DestinationIP: conn.Metadata.DestinationIP, Network: conn.Metadata.Network, Protocol: conn.Metadata.Type, UploadBytes: upload, DownloadBytes: download, Metadata: metadata}
+}
+
+func panelRouteIdentity(rule string) (*int64, string) {
+	rule = strings.TrimSpace(rule)
+	if !strings.HasPrefix(rule, "panel-route-") { return nil, "" }
+	raw := strings.TrimPrefix(rule, "panel-route-")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 { return nil, rule }
+	return &id, rule
 }
 
 func (c *Collector) tailSingBoxJournal(unit string) {
