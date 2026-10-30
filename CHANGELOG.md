@@ -13,6 +13,8 @@ All notable fork changes are recorded here. Release dates use the
 - Build against a pinned Cedar Xray commit with access-log byte counters
   applied locally, and parse `up=<bytes> down=<bytes>` at connection teardown
   while retaining compatibility with legacy access-log lines.
+- Include `bash` in the fork builder image so Xray patch preparation also runs
+  in the release Docker build, not only on manually prepared hosts.
 - Decode structured panel routes with `criteria`, `match_mode`, priority and
   disabled state.
 - Compile `all` panel rules as one multi-condition rule and `any` rules as
