@@ -32,3 +32,37 @@ func TestDecodeWeakRawIncludesEgressProxy(t *testing.T) {
 		t.Fatalf("unexpected method: %#v", got)
 	}
 }
+
+func TestDecodeWeakRawIncludesStructuredRoutes(t *testing.T) {
+	raw := map[string]interface{}{
+		"protocol": "vless",
+		"routes": []interface{}{
+			map[string]interface{}{
+				"id":         9,
+				"remarks":    "structured",
+				"match":      []interface{}{},
+				"criteria":   map[string]interface{}{"domain_suffixes": []interface{}{"example.com"}},
+				"match_mode": "all",
+				"priority":   15,
+				"disabled":   true,
+				"action":     "proxy",
+				"action_value": "warp",
+			},
+		},
+	}
+
+	var config NodeConfig
+	if err := decodeWeakRaw(raw, &config); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if len(config.Routes) != 1 || config.Routes[0].Criteria == nil {
+		t.Fatalf("structured route was not decoded: %#v", config.Routes)
+	}
+	route := config.Routes[0]
+	if route.MatchMode != "all" || route.Priority != 15 || !route.Disabled || route.ActionValue != "warp" {
+		t.Fatalf("unexpected route metadata: %#v", route)
+	}
+	if got := route.Criteria.DomainSuffixes[0]; got != "example.com" {
+		t.Fatalf("unexpected route criteria: %#v", route.Criteria)
+	}
+}

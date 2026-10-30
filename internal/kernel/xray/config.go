@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/cedar2025/xboard-node/internal/config"
@@ -103,33 +104,56 @@ func egressProxyToXray(proxy *model.EgressProxyConfig) M {
 	result := M{"tag": model.EgressProxyTag(proxy.ID)}
 	switch strings.ToLower(proxy.Protocol) {
 	case "socks5":
-		withCredentials(); result["protocol"] = "socks"; result["settings"] = M{"servers": []M{server}}
+		withCredentials()
+		result["protocol"] = "socks"
+		result["settings"] = M{"servers": []M{server}}
 	case "http":
-		withCredentials(); result["protocol"] = "http"; result["settings"] = M{"servers": []M{server}}
+		withCredentials()
+		result["protocol"] = "http"
+		result["settings"] = M{"servers": []M{server}}
 	case "shadowsocks":
-		server["method"] = config["method"]; server["password"] = proxy.Password
-		result["protocol"] = "shadowsocks"; result["settings"] = M{"servers": []M{server}}
+		server["method"] = config["method"]
+		server["password"] = proxy.Password
+		result["protocol"] = "shadowsocks"
+		result["settings"] = M{"servers": []M{server}}
 	case "vless":
 		user := M{"id": config["uuid"], "encryption": "none"}
-		if flow := egressStringValue(config, "flow"); flow != "" { user["flow"] = flow }
-		server["users"] = []M{user}; result["protocol"] = "vless"; result["settings"] = M{"vnext": []M{server}}
+		if flow := egressStringValue(config, "flow"); flow != "" {
+			user["flow"] = flow
+		}
+		server["users"] = []M{user}
+		result["protocol"] = "vless"
+		result["settings"] = M{"vnext": []M{server}}
 	case "trojan":
-		server["password"] = proxy.Password; result["protocol"] = "trojan"; result["settings"] = M{"servers": []M{server}}
+		server["password"] = proxy.Password
+		result["protocol"] = "trojan"
+		result["settings"] = M{"servers": []M{server}}
 	}
-	if stream := egressProxyStreamSettings(proxy); stream != nil { result["streamSettings"] = stream }
+	if stream := egressProxyStreamSettings(proxy); stream != nil {
+		result["streamSettings"] = stream
+	}
 	return result
 }
 
 func egressProxyStreamSettings(proxy *model.EgressProxyConfig) M {
-	if !proxy.TLSEnabled && proxy.Config["reality"] == nil { return nil }
-	network := egressStringValue(proxy.Config, "network"); if network == "" { network = "tcp" }
+	if !proxy.TLSEnabled && proxy.Config["reality"] == nil {
+		return nil
+	}
+	network := egressStringValue(proxy.Config, "network")
+	if network == "" {
+		network = "tcp"
+	}
 	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
 		settings := M{"show": false, "publicKey": reality["public_key"], "shortId": reality["short_id"]}
-		if name := proxy.TLSServerName; name != "" { settings["serverName"] = name }
+		if name := proxy.TLSServerName; name != "" {
+			settings["serverName"] = name
+		}
 		return M{"network": network, "security": "reality", "realitySettings": settings}
 	}
 	settings := M{"allowInsecure": proxy.AllowInsecure}
-	if name := proxy.TLSServerName; name != "" { settings["serverName"] = name }
+	if name := proxy.TLSServerName; name != "" {
+		settings["serverName"] = name
+	}
 	return M{"network": network, "security": "tls", "tlsSettings": settings}
 }
 
@@ -139,8 +163,14 @@ func egressStringValue(values map[string]any, key string) string {
 }
 
 func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
-	if proxy == nil { return }
-	routing, ok := cfg["routing"].(M); if !ok { routing = M{}; cfg["routing"] = routing }
+	if proxy == nil {
+		return
+	}
+	routing, ok := cfg["routing"].(M)
+	if !ok {
+		routing = M{}
+		cfg["routing"] = routing
+	}
 	rules, _ := routing["rules"].([]M)
 	// This is deliberately last: safety/audit rules retain their priority and
 	// only traffic not matched by them uses the residential/provider egress.
@@ -779,6 +809,10 @@ func buildRealitySettings(nc *model.NodeSpec) M {
 
 func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteRule, customRules []map[string]any) M {
 	var xrayRules []M
+	rules = append([]model.RouteRule(nil), rules...)
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].Priority < rules[j].Priority
+	})
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
 	for _, rule := range customRouteRules {
@@ -822,8 +856,20 @@ func buildRouting(rules []model.RouteRule, customRouteRules []model.CustomRouteR
 }
 
 func compilePanelRouteRule(rule model.RouteRule) []M {
-	if len(rule.Match) == 0 {
+	if rule.Disabled {
 		return nil
+	}
+	match := panelRouteMatch(rule)
+	action := panelRouteAction(rule)
+	if strings.EqualFold(rule.MatchMode, "all") {
+		return compilePanelRouteAll(match, action)
+	}
+	return compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
+}
+
+func panelRouteMatch(rule model.RouteRule) model.RouteMatch {
+	if rule.Criteria != nil {
+		return *rule.Criteria
 	}
 	match := model.RouteMatch{}
 	for _, item := range rule.Match {
@@ -841,6 +887,10 @@ func compilePanelRouteRule(rule model.RouteRule) []M {
 		}
 		match.DomainSuffixes = append(match.DomainSuffixes, strings.TrimPrefix(item, "*."))
 	}
+	return match
+}
+
+func panelRouteAction(rule model.RouteRule) model.RouteAction {
 	action := model.RouteAction{Type: "block"}
 	switch rule.Action {
 	case "direct":
@@ -848,8 +898,55 @@ func compilePanelRouteRule(rule model.RouteRule) []M {
 	case "proxy":
 		action.Type = "route"
 		action.Target = rule.ActionValue
+	case "dns":
+		action.Type = "route"
+		action.Target = rule.ActionValue
+		if action.Target == "" {
+			action.Target = "dns-out"
+		}
 	}
-	return compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
+	return action
+}
+
+func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M {
+	entry := M{
+		"type":        "field",
+		"outboundTag": xrayOutboundForAction(action),
+	}
+	resultCount := 0
+	if len(match.Domains) > 0 || len(match.DomainSuffixes) > 0 {
+		domains := make([]string, 0, len(match.Domains)+len(match.DomainSuffixes))
+		domains = append(domains, match.Domains...)
+		for _, value := range match.DomainSuffixes {
+			domains = append(domains, "domain:"+strings.TrimPrefix(value, "*."))
+		}
+		entry["domain"] = domains
+		resultCount++
+	}
+	if len(match.IPCIDRs) > 0 {
+		entry["ip"] = copyStrings(match.IPCIDRs)
+		resultCount++
+	}
+	if len(match.Ports) > 0 {
+		entry["port"] = strings.Join(match.Ports, ",")
+		resultCount++
+	}
+	if len(match.Networks) > 0 {
+		entry["network"] = strings.Join(match.Networks, ",")
+		resultCount++
+	}
+	if len(match.SourceCIDRs) > 0 {
+		entry["source"] = copyStrings(match.SourceCIDRs)
+		resultCount++
+	}
+	if len(match.SourcePorts) > 0 {
+		entry["sourcePort"] = strings.Join(match.SourcePorts, ",")
+		resultCount++
+	}
+	if resultCount == 0 {
+		return nil
+	}
+	return []M{entry}
 }
 
 func compileCustomRouteRule(rule model.CustomRouteRule) []M {

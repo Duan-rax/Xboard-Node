@@ -49,7 +49,34 @@
 1. Structured `custom_route_rules` (highest priority)
 2. Raw `custom_routes`
 3. Built-in blocklist rules
-4. Panel routes
+4. Panel routes, ordered by ascending `priority`
+
+## Panel Route Schema 2
+
+Xboard route groups can now be sent in the legacy `routes` field with a
+structured `criteria` object:
+
+```json
+{
+  "id": 9,
+  "match": [],
+  "criteria": {
+    "domains": ["api.example.com"],
+    "ports": ["443", "8000-8100"],
+    "networks": ["tcp"]
+  },
+  "match_mode": "all",
+  "priority": 20,
+  "disabled": false,
+  "action": "proxy",
+  "action_value": "warp-out"
+}
+```
+
+- `match_mode: all` produces one rule containing all supplied matcher fields.
+- `match_mode: any` produces separate rules for each matcher category.
+- `disabled` rules are ignored.
+- Routes without `criteria` continue to use the legacy `match` array.
 
 ## Kernel Compatibility
 

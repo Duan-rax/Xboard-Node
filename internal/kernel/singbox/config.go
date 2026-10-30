@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -89,33 +90,60 @@ func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
 	config := proxy.Config
 	base := M{"tag": tag, "server": proxy.Host, "server_port": proxy.Port}
 	credentials := func(m M) {
-		if proxy.Username != "" { m["username"] = proxy.Username }
-		if proxy.Password != "" { m["password"] = proxy.Password }
+		if proxy.Username != "" {
+			m["username"] = proxy.Username
+		}
+		if proxy.Password != "" {
+			m["password"] = proxy.Password
+		}
 	}
 	tls := egressProxyTLS(proxy)
 	switch strings.ToLower(proxy.Protocol) {
 	case "socks5":
-		base["type"] = "socks"; base["version"] = "5"; credentials(base)
+		base["type"] = "socks"
+		base["version"] = "5"
+		credentials(base)
 	case "http":
-		base["type"] = "http"; credentials(base); if tls != nil { base["tls"] = tls }
+		base["type"] = "http"
+		credentials(base)
+		if tls != nil {
+			base["tls"] = tls
+		}
 	case "shadowsocks":
-		base["type"] = "shadowsocks"; base["method"] = config["method"]; credentials(base)
+		base["type"] = "shadowsocks"
+		base["method"] = config["method"]
+		credentials(base)
 	case "vless":
-		base["type"] = "vless"; base["uuid"] = config["uuid"]
-		if flow := egressStringValue(config, "flow"); flow != "" { base["flow"] = flow }
-		if tls != nil { base["tls"] = tls }
+		base["type"] = "vless"
+		base["uuid"] = config["uuid"]
+		if flow := egressStringValue(config, "flow"); flow != "" {
+			base["flow"] = flow
+		}
+		if tls != nil {
+			base["tls"] = tls
+		}
 	case "trojan":
-		base["type"] = "trojan"; credentials(base); if tls != nil { base["tls"] = tls }
+		base["type"] = "trojan"
+		credentials(base)
+		if tls != nil {
+			base["tls"] = tls
+		}
 	}
 	return base
 }
 
 func egressProxyTLS(proxy *model.EgressProxyConfig) M {
-	if !proxy.TLSEnabled && proxy.Config["reality"] == nil { return nil }
+	if !proxy.TLSEnabled && proxy.Config["reality"] == nil {
+		return nil
+	}
 	tls := M{"enabled": true, "insecure": proxy.AllowInsecure}
 	serverName := proxy.TLSServerName
-	if serverName == "" { serverName = egressStringValue(proxy.Config, "server_name") }
-	if serverName != "" { tls["server_name"] = serverName }
+	if serverName == "" {
+		serverName = egressStringValue(proxy.Config, "server_name")
+	}
+	if serverName != "" {
+		tls["server_name"] = serverName
+	}
 	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
 		tls["reality"] = M{"enabled": true, "public_key": reality["public_key"], "short_id": reality["short_id"]}
 	}
@@ -230,6 +258,10 @@ func mergeRouteList(a, b []map[string]any) []map[string]any {
 
 func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule, custom []map[string]any) M {
 	var rules []M
+	panelRoutes = append([]model.RouteRule(nil), panelRoutes...)
+	sort.SliceStable(panelRoutes, func(i, j int) bool {
+		return panelRoutes[i].Priority < panelRoutes[j].Priority
+	})
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
 	for _, rule := range customRules {
@@ -280,54 +312,105 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 }
 
 func compilePanelRouteRule(pr model.RouteRule) []M {
-	if len(pr.Match) == 0 {
+	if pr.Disabled {
 		return nil
 	}
 
-	var domains, cidrs []string
-	for _, item := range pr.Match {
+	match := panelRouteMatch(pr)
+	action := panelRouteAction(pr)
+	if strings.EqualFold(pr.MatchMode, "all") {
+		return compilePanelRouteAll(match, action)
+	}
+	return compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
+}
+
+func panelRouteAction(rule model.RouteRule) model.RouteAction {
+	action := model.RouteAction{Type: "block"}
+	switch rule.Action {
+	case "direct":
+		action.Type = "direct"
+	case "proxy":
+		action.Type = "route"
+		action.Target = rule.ActionValue
+	case "dns":
+		action.Type = "route"
+		action.Target = rule.ActionValue
+		if action.Target == "" {
+			action.Target = "dns-out"
+		}
+	}
+	return action
+}
+
+func panelRouteMatch(rule model.RouteRule) model.RouteMatch {
+	if rule.Criteria != nil {
+		return *rule.Criteria
+	}
+	match := model.RouteMatch{}
+	for _, item := range rule.Match {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue
 		}
 		item = strings.TrimPrefix(item, "*.")
 		if strings.Contains(item, "/") {
-			cidrs = append(cidrs, item)
-			continue
-		}
-		domains = append(domains, item)
-	}
-
-	outbound := "block"
-	switch pr.Action {
-	case "direct":
-		outbound = "direct"
-	case "dns":
-		if pr.ActionValue != "" {
-			outbound = pr.ActionValue
+			match.IPCIDRs = append(match.IPCIDRs, item)
 		} else {
-			outbound = "dns-out"
-		}
-	case "proxy":
-		if pr.ActionValue != "" {
-			outbound = pr.ActionValue
+			match.DomainSuffixes = append(match.DomainSuffixes, item)
 		}
 	}
+	return match
+}
 
-	var compiled []M
-	if len(domains) > 0 {
-		compiled = append(compiled, M{
-			"domain_suffix": copyStrings(domains),
-			"outbound":      outbound,
-		})
+func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M {
+	entry := M{"outbound": singboxOutboundForAction(action)}
+	resultCount := 0
+	if len(match.Domains) > 0 {
+		entry["domain"] = copyStrings(match.Domains)
+		resultCount++
 	}
-	if len(cidrs) > 0 {
-		compiled = append(compiled, M{
-			"ip_cidr":  copyStrings(cidrs),
-			"outbound": outbound,
-		})
+	if len(match.DomainSuffixes) > 0 {
+		entry["domain_suffix"] = copyStrings(match.DomainSuffixes)
+		resultCount++
 	}
-	return compiled
+	if len(match.IPCIDRs) > 0 {
+		entry["ip_cidr"] = copyStrings(match.IPCIDRs)
+		resultCount++
+	}
+	if len(match.Ports) > 0 {
+		ports, ranges := splitPorts(match.Ports)
+		if len(ports) > 0 {
+			entry["port"] = ports
+			resultCount++
+		}
+		if len(ranges) > 0 {
+			entry["port_range"] = ranges
+			resultCount++
+		}
+	}
+	if len(match.Networks) > 0 {
+		entry["network"] = copyStrings(match.Networks)
+		resultCount++
+	}
+	if len(match.SourceCIDRs) > 0 {
+		entry["source_ip_cidr"] = copyStrings(match.SourceCIDRs)
+		resultCount++
+	}
+	if len(match.SourcePorts) > 0 {
+		ports, ranges := splitPorts(match.SourcePorts)
+		if len(ports) > 0 {
+			entry["source_port"] = ports
+			resultCount++
+		}
+		if len(ranges) > 0 {
+			entry["source_port_range"] = ranges
+			resultCount++
+		}
+	}
+	if resultCount == 0 {
+		return nil
+	}
+	return []M{entry}
 }
 
 func compileCustomRouteRule(rule model.CustomRouteRule) []M {

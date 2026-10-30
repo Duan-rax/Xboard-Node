@@ -51,10 +51,10 @@ func TestBuildInbound_Shadowsocks(t *testing.T) {
 func TestBuildConfig_AuditClashAPIUsesRuntimePort(t *testing.T) {
 	node := &panel.NodeConfig{Protocol: "shadowsocks", ServerPort: 443, Cipher: "aes-128-gcm"}
 	cfg := buildConfig(config.KernelConfig{
-		LogLevel:                 "warn",
-		SingBoxAuditAPIEnabled:  true,
-		SingBoxAuditAPIPort:     19123,
-		SingBoxAuditAPISecret:   "local-only-secret",
+		LogLevel:               "warn",
+		SingBoxAuditAPIEnabled: true,
+		SingBoxAuditAPIPort:    19123,
+		SingBoxAuditAPISecret:  "local-only-secret",
 	}, testNodeSpec(node), testUsers, kernel.TLSCert{})
 	experimental, ok := cfg["experimental"].(map[string]interface{})
 	if !ok {
@@ -615,7 +615,10 @@ func TestBuildConfig_EgressProxyAddsCatchAllRule(t *testing.T) {
 	}
 	var found M
 	for _, outbound := range cfg["outbounds"].([]M) {
-		if outbound["tag"] == "panel-egress-42" { found = outbound; break }
+		if outbound["tag"] == "panel-egress-42" {
+			found = outbound
+			break
+		}
 	}
 	if found == nil || found["type"] != "socks" || found["server"] != "198.51.100.8" {
 		t.Fatalf("unexpected egress outbound: %#v", found)
@@ -787,6 +790,57 @@ func TestBuildRoutes_StructuredCustomRulesRemainFirst(t *testing.T) {
 	}
 	if allRules[1]["outbound"] != "raw-tag" {
 		t.Fatalf("expected raw custom route second, got %v", allRules[1]["outbound"])
+	}
+}
+
+func TestBuildRoutes_StructuredPanelRules(t *testing.T) {
+	allCriteria := model.RouteMatch{
+		DomainSuffixes: []string{"api.example.com"},
+		Ports:          []string{"443", "8000-8010"},
+		Networks:       []string{"tcp"},
+	}
+	rules := []model.RouteRule{
+		{
+			ID:          2,
+			Criteria:    &allCriteria,
+			MatchMode:   "all",
+			Priority:    20,
+			Action:      "proxy",
+			ActionValue: "warp",
+		},
+		{
+			ID:        1,
+			Criteria:  &model.RouteMatch{Domains: []string{"first.example.com"}},
+			MatchMode: "any",
+			Priority:  10,
+			Action:    "direct",
+		},
+		{
+			ID:       3,
+			Criteria: &model.RouteMatch{Domains: []string{"disabled.example.com"}},
+			Priority: 5,
+			Disabled: true,
+			Action:   "block",
+		},
+	}
+
+	route := buildRoutes(rules, nil, nil)
+	compiled := route["rules"].([]M)
+	if len(compiled) != 4 {
+		t.Fatalf("rules count: got %d, want 4", len(compiled))
+	}
+	if got := compiled[2]["domain"].([]string)[0]; got != "first.example.com" {
+		t.Fatalf("priority ordering failed: %v", compiled[2])
+	}
+	last := compiled[3]
+	if last["outbound"] != "warp" || last["network"].([]string)[0] != "tcp" {
+		t.Fatalf("unexpected all-mode rule: %#v", last)
+	}
+	if _, ok := last["port"]; !ok {
+		t.Fatalf("all-mode rule should include port matcher: %#v", last)
+	}
+	if _, ok := last["port_range"]; !ok {
+		t.Fatalf("all-mode rule should include port range matcher: %#v", last)
 	}
 }
 

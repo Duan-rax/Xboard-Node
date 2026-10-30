@@ -58,9 +58,25 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 
 	routes := make([]RouteRule, 0, len(nc.Routes))
 	for _, route := range nc.Routes {
+		var criteria *RouteMatch
+		if route.Criteria != nil {
+			criteria = &RouteMatch{
+				Domains:        cloneStringSlice(route.Criteria.Domains),
+				DomainSuffixes: cloneStringSlice(route.Criteria.DomainSuffixes),
+				IPCIDRs:        cloneStringSlice(route.Criteria.IPCIDRs),
+				Ports:          cloneStringSlice(route.Criteria.Ports),
+				Networks:       cloneStringSlice(route.Criteria.Networks),
+				SourceCIDRs:    cloneStringSlice(route.Criteria.SourceCIDRs),
+				SourcePorts:    cloneStringSlice(route.Criteria.SourcePorts),
+			}
+		}
 		routes = append(routes, RouteRule{
 			ID:          route.ID,
 			Match:       cloneStringSlice(route.Match),
+			Criteria:    criteria,
+			MatchMode:   route.MatchMode,
+			Priority:    route.Priority,
+			Disabled:    route.Disabled,
 			Action:      route.Action,
 			ActionValue: route.ActionValue,
 		})
@@ -209,9 +225,25 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 
 	routes := make([]panel.RouteRule, 0, len(n.Routes))
 	for _, route := range n.Routes {
+		var criteria *panel.RouteMatch
+		if route.Criteria != nil {
+			criteria = &panel.RouteMatch{
+				Domains:        cloneStringSlice(route.Criteria.Domains),
+				DomainSuffixes: cloneStringSlice(route.Criteria.DomainSuffixes),
+				IPCIDRs:        cloneStringSlice(route.Criteria.IPCIDRs),
+				Ports:          cloneStringSlice(route.Criteria.Ports),
+				Networks:       cloneStringSlice(route.Criteria.Networks),
+				SourceCIDRs:    cloneStringSlice(route.Criteria.SourceCIDRs),
+				SourcePorts:    cloneStringSlice(route.Criteria.SourcePorts),
+			}
+		}
 		routes = append(routes, panel.RouteRule{
 			ID:          route.ID,
 			Match:       cloneStringSlice(route.Match),
+			Criteria:    criteria,
+			MatchMode:   route.MatchMode,
+			Priority:    route.Priority,
+			Disabled:    route.Disabled,
 			Action:      route.Action,
 			ActionValue: route.ActionValue,
 		})

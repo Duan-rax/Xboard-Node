@@ -71,8 +71,8 @@ type MachineNode struct {
 
 // MachineNodesResponse is the response from GET /api/v2/server/machine/nodes.
 type MachineNodesResponse struct {
-	Nodes      []MachineNode      `json:"nodes"`
-	BaseConfig MachineBaseConfig  `json:"base_config"`
+	Nodes      []MachineNode     `json:"nodes"`
+	BaseConfig MachineBaseConfig `json:"base_config"`
 }
 
 // MachineBaseConfig holds polling intervals for machine mode.
@@ -94,11 +94,11 @@ type NodeConfig struct {
 	Routes          []RouteRule            `json:"routes"`
 
 	// Kernel settings (Xboard extension)
-	KernelType       string            `json:"kernel_type,omitempty"`      // "singbox" or "xray"
-	KernelLogLevel   string            `json:"kernel_log_level,omitempty"` // "info", "warn", etc.
-	CustomOutbounds  []OutboundConfig  `json:"custom_outbounds,omitempty"`
-	CustomRoutes     []map[string]any  `json:"custom_routes,omitempty"`
-	CustomRouteRules []CustomRouteRule `json:"custom_route_rules,omitempty"`
+	KernelType       string             `json:"kernel_type,omitempty"`      // "singbox" or "xray"
+	KernelLogLevel   string             `json:"kernel_log_level,omitempty"` // "info", "warn", etc.
+	CustomOutbounds  []OutboundConfig   `json:"custom_outbounds,omitempty"`
+	CustomRoutes     []map[string]any   `json:"custom_routes,omitempty"`
+	CustomRouteRules []CustomRouteRule  `json:"custom_route_rules,omitempty"`
 	EgressProxy      *EgressProxyConfig `json:"egress_proxy,omitempty"`
 
 	// Certificate settings (Xboard extension)
@@ -151,17 +151,17 @@ type NodeConfig struct {
 // kernel-neutral description and the node renders the appropriate native
 // Xray or sing-box outbound.
 type EgressProxyConfig struct {
-	ID              int                    `json:"id"`
-	Name            string                 `json:"name"`
-	Protocol        string                 `json:"protocol"`
-	Host            string                 `json:"host"`
-	Port            int                    `json:"port"`
-	Username        string                 `json:"username,omitempty"`
-	Password        string                 `json:"password,omitempty"`
-	TLSEnabled      bool                   `json:"tls_enabled,omitempty"`
-	TLSServerName   string                 `json:"tls_server_name,omitempty"`
-	AllowInsecure   bool                   `json:"allow_insecure,omitempty"`
-	Config          map[string]interface{} `json:"config,omitempty"`
+	ID            int                    `json:"id"`
+	Name          string                 `json:"name"`
+	Protocol      string                 `json:"protocol"`
+	Host          string                 `json:"host"`
+	Port          int                    `json:"port"`
+	Username      string                 `json:"username,omitempty"`
+	Password      string                 `json:"password,omitempty"`
+	TLSEnabled    bool                   `json:"tls_enabled,omitempty"`
+	TLSServerName string                 `json:"tls_server_name,omitempty"`
+	AllowInsecure bool                   `json:"allow_insecure,omitempty"`
+	Config        map[string]interface{} `json:"config,omitempty"`
 }
 
 // GetProxyProtocol returns true if AcceptProxyProtocol is set either at node level
@@ -242,10 +242,14 @@ type BaseConfig struct {
 }
 
 type RouteRule struct {
-	ID          int      `json:"id"`
-	Match       []string `json:"match"`
-	Action      string   `json:"action"`
-	ActionValue string   `json:"action_value,omitempty"`
+	ID          int         `json:"id"`
+	Match       []string    `json:"match"`
+	Criteria    *RouteMatch `json:"criteria,omitempty"`
+	MatchMode   string      `json:"match_mode,omitempty"`
+	Priority    int         `json:"priority,omitempty"`
+	Disabled    bool        `json:"disabled,omitempty"`
+	Action      string      `json:"action"`
+	ActionValue string      `json:"action_value,omitempty"`
 }
 
 type CustomRouteRule struct {

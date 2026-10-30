@@ -90,7 +90,10 @@ func TestBuildConfig_EgressProxyAddsLastRoute(t *testing.T) {
 	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
 	var found M
 	for _, outbound := range cfg["outbounds"].([]M) {
-		if outbound["tag"] == "panel-egress-42" { found = outbound; break }
+		if outbound["tag"] == "panel-egress-42" {
+			found = outbound
+			break
+		}
 	}
 	if found == nil || found["protocol"] != "socks" {
 		t.Fatalf("unexpected egress outbound: %#v", found)
@@ -437,6 +440,51 @@ func TestBuildRouting_StructuredCustomRulesRemainFirst(t *testing.T) {
 	}
 	if xrayRules[1]["outboundTag"] != "raw-tag" {
 		t.Fatalf("expected raw custom rule second, got %v", xrayRules[1]["outboundTag"])
+	}
+}
+
+func TestBuildRouting_StructuredPanelRules(t *testing.T) {
+	allCriteria := model.RouteMatch{
+		Domains:  []string{"api.example.com"},
+		Ports:    []string{"443"},
+		Networks: []string{"tcp"},
+	}
+	rules := []model.RouteRule{
+		{
+			ID:          2,
+			Criteria:    &allCriteria,
+			MatchMode:   "all",
+			Priority:    20,
+			Action:      "proxy",
+			ActionValue: "warp",
+		},
+		{
+			ID:        1,
+			Criteria:  &model.RouteMatch{DomainSuffixes: []string{"first.example.com"}},
+			MatchMode: "any",
+			Priority:  10,
+			Action:    "direct",
+		},
+		{
+			ID:       3,
+			Criteria: &model.RouteMatch{Domains: []string{"disabled.example.com"}},
+			Priority: 5,
+			Disabled: true,
+			Action:   "block",
+		},
+	}
+
+	routing := buildRouting(rules, nil, nil)
+	compiled := routing["rules"].([]M)
+	if len(compiled) != 3 {
+		t.Fatalf("rules count: got %d, want 3", len(compiled))
+	}
+	if got := compiled[1]["domain"].([]string)[0]; got != "domain:first.example.com" {
+		t.Fatalf("priority ordering failed: %v", compiled[1])
+	}
+	last := compiled[2]
+	if last["outboundTag"] != "warp" || last["network"] != "tcp" || last["port"] != "443" {
+		t.Fatalf("unexpected all-mode rule: %#v", last)
 	}
 }
 

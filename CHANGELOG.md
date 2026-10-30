@@ -3,6 +3,15 @@
 All notable fork changes are recorded here. Release dates use the
 `Asia/Singapore` timezone.
 
+## Unreleased
+
+- Decode structured panel routes with `criteria`, `match_mode`, priority and
+  disabled state.
+- Compile `all` panel rules as one multi-condition rule and `any` rules as
+  separate matchers for both Sing-box and Xray.
+- Preserve legacy `match` rules and apply panel routes in ascending priority
+  order.
+
 ## 2026.10.30.2
 
 Release: `v2026.10.30.2`

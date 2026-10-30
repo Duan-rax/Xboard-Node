@@ -72,6 +72,10 @@ type OutboundConfig struct {
 type RouteRule struct {
 	ID          int
 	Match       []string
+	Criteria    *RouteMatch
+	MatchMode   string
+	Priority    int
+	Disabled    bool
 	Action      string
 	ActionValue string
 }
