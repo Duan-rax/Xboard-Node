@@ -73,6 +73,10 @@ var _ kernel.Kernel = (*SingBox)(nil)
 
 func (s *SingBox) Name() string { return "sing-box" }
 
+func (s *SingBox) Version() string {
+	return kernel.ModuleVersion("github.com/sagernet/sing-box")
+}
+
 func (s *SingBox) Capabilities() kernel.Capabilities {
 	return kernel.Capabilities{
 		PerUserSpeedLimit:    true,
@@ -81,6 +85,27 @@ func (s *SingBox) Capabilities() kernel.Capabilities {
 		AliveIPTracking:      true,
 		ForceCloseConnection: false,
 		ForceCloseUser:       true,
+		RouteFeatures: []string{
+			"structured_routes",
+			"match_any",
+			"match_all",
+			"priority",
+			"domain_exact",
+			"domain_suffix",
+			"domain_keyword",
+			"domain_regex",
+			"ip_cidr",
+			"port",
+			"network",
+			"source_ip",
+			"source_port",
+			"protocol_sniff",
+			"geoip",
+			"geosite",
+			"rule_set",
+			"dns_action",
+			"egress_hot_reload",
+		},
 	}
 }
 

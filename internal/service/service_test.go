@@ -16,6 +16,7 @@ import (
 
 type fakeKernel struct {
 	running bool
+	version string
 
 	startErr  error
 	reloadErr error
@@ -38,8 +39,11 @@ type fakeKernel struct {
 }
 
 func (f *fakeKernel) Name() string                      { return "fake" }
+func (f *fakeKernel) Version() string                   { return f.version }
 func (f *fakeKernel) Protocols() []string               { return []string{"vless"} }
-func (f *fakeKernel) Capabilities() kernel.Capabilities { return kernel.Capabilities{} }
+func (f *fakeKernel) Capabilities() kernel.Capabilities {
+	return kernel.Capabilities{RouteFeatures: []string{"structured_routes", "domain_exact", "domain_exact"}}
+}
 func (f *fakeKernel) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	_, _, _ = nodeConfig, users, tls
 	f.startCalls++
@@ -115,6 +119,41 @@ func newTestService(k *fakeKernel) *Service {
 	k.SetSpeedLimitFunc(s.speedTracker.GetLimiter)
 	k.SetDeviceLimitFunc(s.limiter.GetDeviceLimitByUUID)
 	return s
+}
+
+func TestBuildMetricsReportsCapabilityManifest(t *testing.T) {
+	k := &fakeKernel{running: true, version: "v9.9.9"}
+	s := newTestService(k)
+
+	metrics := s.capabilityMetrics()
+
+	if got := metrics["kernel"]; got != "fake" {
+		t.Fatalf("kernel = %v, want fake", got)
+	}
+	if got := metrics["kernel_version"]; got != "v9.9.9" {
+		t.Fatalf("kernel_version = %v, want v9.9.9", got)
+	}
+	features, ok := metrics["features"].([]string)
+	if !ok {
+		t.Fatalf("features type = %T, want []string", metrics["features"])
+	}
+	want := map[string]bool{
+		"config_revision":      true,
+		"config_hash":          true,
+		"config_atomic_apply":  true,
+		"last_known_good":      true,
+		"structured_routes":    true,
+		"domain_exact":         true,
+	}
+	for _, feature := range features {
+		delete(want, feature)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing features %v in %v", want, features)
+	}
+	if len(features) != 6 {
+		t.Fatalf("features should be deduplicated, got %v", features)
+	}
 }
 
 func TestApplyUserUpdatePreparesLimiterBeforeKernelUpdate(t *testing.T) {

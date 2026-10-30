@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sort"
 
 	"github.com/cedar2025/xboard-node/internal/model"
@@ -18,6 +19,38 @@ type Capabilities struct {
 	AliveIPTracking      bool
 	ForceCloseConnection bool
 	ForceCloseUser       bool
+	// RouteFeatures lists the structured route semantics implemented by this
+	// kernel. The panel uses these tokens for capability negotiation before a
+	// route is bound to a node.
+	RouteFeatures []string
+}
+
+// ModuleVersion returns the effective version of an embedded Go module.
+// It follows local go.mod replace directives so the panel sees the kernel
+// implementation that was actually compiled into this binary.
+func ModuleVersion(modulePath string) string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	for _, dep := range info.Deps {
+		if dep == nil || dep.Path != modulePath {
+			continue
+		}
+		effective := dep
+		if dep.Replace != nil {
+			effective = dep.Replace
+		}
+		switch {
+		case effective.Version != "":
+			return effective.Version
+		case effective.Path != "":
+			return effective.Path
+		default:
+			return "unknown"
+		}
+	}
+	return "unknown"
 }
 
 // TLSCert holds PEM-encoded TLS certificate material.
@@ -45,6 +78,8 @@ type Kernel interface {
 	// ─── Identity ───────────────────────────────────────────────────────
 	// Name returns the kernel identifier (e.g. "sing-box", "xray").
 	Name() string
+	// Version returns the effective embedded kernel module version.
+	Version() string
 	// Protocols returns the protocol names this kernel supports.
 	Protocols() []string
 	// Capabilities returns the explicit runtime semantics supported by the kernel.

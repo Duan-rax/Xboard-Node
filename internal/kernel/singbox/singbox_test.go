@@ -23,6 +23,18 @@ func TestSingBoxCapabilities(t *testing.T) {
 	if caps.BuiltInTrafficStats || caps.ForceCloseConnection {
 		t.Fatalf("unexpected sing-box capabilities: %+v", caps)
 	}
+	features := make(map[string]bool, len(caps.RouteFeatures))
+	for _, feature := range caps.RouteFeatures {
+		features[feature] = true
+	}
+	for _, feature := range []string{"structured_routes", "geoip", "geosite", "rule_set", "source_port", "dns_action"} {
+		if !features[feature] {
+			t.Fatalf("sing-box route capabilities missing %q: %v", feature, caps.RouteFeatures)
+		}
+	}
+	if s.Version() == "" {
+		t.Fatal("sing-box version must not be empty")
+	}
 	protocols := s.Protocols()
 	found := false
 	for _, protocol := range protocols {

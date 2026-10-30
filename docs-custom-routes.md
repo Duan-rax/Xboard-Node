@@ -122,6 +122,35 @@ Sing-box no longer accepts the legacy `geoip` and `geosite` route fields.
 Automatic Geo collections are compiled to remote `.srs` rule-sets and cached
 through `experimental.cache_file`.
 
+## Capability Reporting
+
+Every status report includes a capability manifest:
+
+```json
+{
+  "kernel": "sing-box",
+  "kernel_version": "v1.14.0-alpha.2-...",
+  "features": [
+    "config_revision",
+    "config_hash",
+    "config_atomic_apply",
+    "last_known_good",
+    "structured_routes",
+    "domain_exact",
+    "domain_suffix",
+    "geoip",
+    "geosite",
+    "rule_set"
+  ]
+}
+```
+
+The version follows the effective module selected by `go.mod`, including
+replacement forks. Xray advertises native GeoIP/GeoSite support but never
+advertises sing-box's native `rule_set` tag capability. The panel uses the
+manifest to reject incompatible route bindings before generating a bad node
+config.
+
 ## Geo Data Sources
 
 Geo databases are downloaded on each backend node, not on the panel host.

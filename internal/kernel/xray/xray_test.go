@@ -172,6 +172,21 @@ func TestXrayCapabilities(t *testing.T) {
 	if caps.ForceCloseConnection || caps.ForceCloseUser {
 		t.Fatalf("unexpected force-close xray capabilities: %+v", caps)
 	}
+	features := make(map[string]bool, len(caps.RouteFeatures))
+	for _, feature := range caps.RouteFeatures {
+		features[feature] = true
+	}
+	for _, feature := range []string{"structured_routes", "geoip", "geosite", "source_port", "dns_action"} {
+		if !features[feature] {
+			t.Fatalf("Xray route capabilities missing %q: %v", feature, caps.RouteFeatures)
+		}
+	}
+	if features["rule_set"] {
+		t.Fatalf("Xray must not advertise sing-box rule_set capability: %v", caps.RouteFeatures)
+	}
+	if x.Version() == "" {
+		t.Fatal("Xray version must not be empty")
+	}
 }
 
 

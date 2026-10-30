@@ -1060,6 +1060,10 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	m := make(map[string]interface{})
 	online := s.tracker.CurrentOnline()
 
+	for key, value := range s.capabilityMetrics() {
+		m[key] = value
+	}
+
 	m["uptime"] = status.Uptime
 	m["goroutines"] = status.Goroutines
 
@@ -1132,6 +1136,31 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	}
 
 	return m
+}
+
+// capabilityMetrics is the stable capability handshake consumed by the panel.
+func (s *Service) capabilityMetrics() map[string]interface{} {
+	caps := s.kernel.Capabilities()
+	features := []string{
+		"config_revision",
+		"config_hash",
+		"config_atomic_apply",
+		"last_known_good",
+	}
+	features = append(features, caps.RouteFeatures...)
+	sort.Strings(features)
+	uniqueFeatures := features[:0]
+	for _, feature := range features {
+		if len(uniqueFeatures) == 0 || uniqueFeatures[len(uniqueFeatures)-1] != feature {
+			uniqueFeatures = append(uniqueFeatures, feature)
+		}
+	}
+	features = uniqueFeatures
+	return map[string]interface{}{
+		"kernel":         s.kernel.Name(),
+		"kernel_version": s.kernel.Version(),
+		"features":       features,
+	}
 }
 
 func (s *Service) markConfigApplied() {

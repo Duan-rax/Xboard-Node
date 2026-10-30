@@ -83,6 +83,10 @@ func New(cfg config.KernelConfig) *Xray {
 
 func (x *Xray) Name() string { return "xray" }
 
+func (x *Xray) Version() string {
+	return kernel.ModuleVersion("github.com/xtls/xray-core")
+}
+
 func (x *Xray) Capabilities() kernel.Capabilities {
 	return kernel.Capabilities{
 		PerUserSpeedLimit:    true,
@@ -91,6 +95,26 @@ func (x *Xray) Capabilities() kernel.Capabilities {
 		AliveIPTracking:      true,
 		ForceCloseConnection: false,
 		ForceCloseUser:       false,
+		RouteFeatures: []string{
+			"structured_routes",
+			"match_any",
+			"match_all",
+			"priority",
+			"domain_exact",
+			"domain_suffix",
+			"domain_keyword",
+			"domain_regex",
+			"ip_cidr",
+			"port",
+			"network",
+			"source_ip",
+			"source_port",
+			"protocol_sniff",
+			"geoip",
+			"geosite",
+			"dns_action",
+			"egress_hot_reload",
+		},
 	}
 }
 

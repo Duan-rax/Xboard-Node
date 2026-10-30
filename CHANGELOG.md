@@ -21,6 +21,9 @@ All notable fork changes are recorded here. Release dates use the
   start both fail instead of leaving partially applied routing state.
 - Limit automatic Sing-box sniffing to TCP to avoid an embedded AnyTLS/UDP
   packet nil-buffer crash while preserving UDP network/port/CIDR routing.
+- Report the kernel name, effective embedded module version and structured
+  route feature manifest in every node status update for panel capability
+  negotiation.
 
 ### Fixed
 
