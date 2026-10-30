@@ -264,11 +264,17 @@ type CustomRouteRule struct {
 type RouteMatch struct {
 	Domains        []string `json:"domains,omitempty"`
 	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
+	DomainKeywords []string `json:"domain_keywords,omitempty"`
+	DomainRegexes  []string `json:"domain_regexes,omitempty"`
 	IPCIDRs        []string `json:"ip_cidrs,omitempty"`
 	Ports          []string `json:"ports,omitempty"`
 	Networks       []string `json:"networks,omitempty"`
 	SourceCIDRs    []string `json:"source_cidrs,omitempty"`
 	SourcePorts    []string `json:"source_ports,omitempty"`
+	Protocols      []string `json:"protocols,omitempty"`
+	GeoIP          []string `json:"geoip,omitempty"`
+	GeoSite        []string `json:"geosite,omitempty"`
+	RuleSets       []string `json:"rule_sets,omitempty"`
 }
 
 type RouteAction struct {

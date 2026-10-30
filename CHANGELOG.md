@@ -9,12 +9,32 @@ All notable fork changes are recorded here. Release dates use the
   disabled state.
 - Compile `all` panel rules as one multi-condition rule and `any` rules as
   separate matchers for both Sing-box and Xray.
+- Support domain keywords, RE2 domain expressions and sniffed application
+  protocols in structured panel and custom routes.
+- Generate current Sing-box routing actions and native `rule_set` definitions
+  for GeoIP/GeoSite collections while keeping Xray on its native geo data.
 - Preserve legacy `match` rules and apply panel routes in ascending priority
   order.
 - Preserve panel `config_revision`/`config_hash` and return both in node status
   reports for reliable applied-config confirmation.
 - Restore the last-known-good config/users when a reload and replacement kernel
   start both fail instead of leaving partially applied routing state.
+
+### Fixed
+
+- Keep Sing-box `all` matcher groups logically ANDed even when multiple domain
+  or rule-set collections are present.
+- Let custom Sing-box rule-set and experimental settings override generated
+  values without dropping the cache needed by remote rule-sets.
+
+### Geo data
+
+- Default both kernels to MetaCubeX, with optional SagerNet and custom URL
+  sources.
+- Download sing-box SRS files on each backend node and cache them locally with
+  CDN-to-GitHub fallback and daily refresh.
+- Download Xray GeoIP/GeoSite databases on the backend node and point
+  `XRAY_LOCATION_ASSET` at the node-owned directory.
 
 ## 2026.10.30.2
 

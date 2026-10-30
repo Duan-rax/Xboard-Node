@@ -24,6 +24,14 @@
 #   # singbox_audit_api_base_port: 19090
 #   # singbox_audit_api_secret: "replace-with-a-long-local-secret"
 #   # audit_manifest_path: "/etc/xboard-node/traffic-audit-targets.json"
+#   # Geo data source. Defaults to MetaCubeX for both kernels.
+#   # geo_data_provider: "metacubex"    # metacubex | loyalsoldier | sagernet | custom
+#   # geo_rule_set_provider: "metacubex" # metacubex | sagernet | custom
+#   # geo_data_variant: "full"           # full | lite (MetaCubeX only)
+#   # geoip_data_url: "https://example.com/geoip.dat"
+#   # geosite_data_url: "https://example.com/geosite.dat"
+#   # geoip_rule_set_url: "https://example.com/geoip/{tag}.srs"
+#   # geosite_rule_set_url: "https://example.com/geosite/{tag}.srs"
 # log:
 #   level: "info"
 # instances:

@@ -76,6 +76,12 @@ panel:
 	if cfg.Kernel.LogLevel != "warn" {
 		t.Errorf("default kernel log_level: got %q, want warn", cfg.Kernel.LogLevel)
 	}
+	if cfg.Kernel.GeoDataProvider != "metacubex" || cfg.Kernel.GeoRuleSetProvider != "metacubex" {
+		t.Errorf("default geo providers: got %q/%q, want metacubex", cfg.Kernel.GeoDataProvider, cfg.Kernel.GeoRuleSetProvider)
+	}
+	if cfg.Kernel.GeoDataVariant != "full" {
+		t.Errorf("default geo variant: got %q, want full", cfg.Kernel.GeoDataVariant)
+	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("default log.level: got %q, want info", cfg.Log.Level)
 	}
@@ -327,7 +333,6 @@ kernel:
 	}
 }
 
-
 func TestLoadRoot_LegacyConfigNormalizesToSingleInstance(t *testing.T) {
 	path := writeTemp(t, `
 panel:
@@ -477,10 +482,10 @@ instances:
 func TestExpandMachineNode_AssignsAuditPort(t *testing.T) {
 	cfg := &Config{
 		Kernel: KernelConfig{
-			ConfigDir:                 "/etc/xboard-node",
-			SingBoxAuditAPIEnabled:   true,
-			SingBoxAuditAPIBasePort:  19090,
-			SingBoxAuditAPISecret:    "local-secret",
+			ConfigDir:               "/etc/xboard-node",
+			SingBoxAuditAPIEnabled:  true,
+			SingBoxAuditAPIBasePort: 19090,
+			SingBoxAuditAPISecret:   "local-secret",
 		},
 		Machine: &MachineConfig{MachineID: 4, Token: "machine-token"},
 	}

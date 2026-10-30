@@ -30,11 +30,17 @@
 |-----------|-------------|---------|
 | `domains` | Exact domain match | `["api.example.com"]` |
 | `domain_suffixes` | Suffix match | `["example.com"]` |
+| `domain_keywords` | Domain substring match | `["tracker"]` |
+| `domain_regexes` | RE2-compatible domain expression | `["(^|\\\\.)cdn[0-9]+\\\\.example$"]` |
 | `ip_cidrs` | IP CIDR ranges | `["10.0.0.0/8"]` |
 | `ports` | Port (single or range) | `["443", "8000-9000"]` |
 | `networks` | Protocol | `["tcp"]` or `["udp"]` |
 | `source_cidrs` | Source IP CIDR | `["192.168.1.0/24"]` |
 | `source_ports` | Source port | `["1024-65535"]` |
+| `protocols` | Sniffed application protocol | `["http", "tls", "quic", "bittorrent"]` |
+| `geoip` | GeoIP collection | `["cn"]` |
+| `geosite` | GeoSite collection | `["category-ads-all"]` |
+| `rule_sets` | Native sing-box rule-set tag | `["my-local-set"]` |
 
 ## Action Types
 
@@ -78,6 +84,10 @@ structured `criteria` object:
 - `disabled` rules are ignored.
 - Routes without `criteria` continue to use the legacy `match` array.
 
+Within each category the supplied values are ORed. In `all` mode different
+categories are ANDed. Domain and sniffed-protocol rules enable traffic sniffing
+automatically.
+
 ## Applied Config Fingerprint
 
 The panel may include `config_revision` and `config_hash` on the node control
@@ -105,6 +115,42 @@ also fails, the kernel is stopped instead of continuing with unknown state.
 |---------|------|----------|
 | All match conditions | ✅ | ✅ |
 | direct / block / route | ✅ | ✅ |
+| GeoIP / GeoSite | Native `geoip:` / `geosite:` | Remote SRS `rule_set` |
+| Native `rule_sets` tags | ❌ | ✅ |
+
+Sing-box no longer accepts the legacy `geoip` and `geosite` route fields.
+Automatic Geo collections are compiled to remote `.srs` rule-sets and cached
+through `experimental.cache_file`.
+
+## Geo Data Sources
+
+Geo databases are downloaded on each backend node, not on the panel host.
+The default source is MetaCubeX.
+
+```yaml
+kernel:
+  type: singbox
+  geo_data_dir: /etc/xboard-node
+  geo_rule_set_provider: metacubex # metacubex | sagernet | custom
+  geo_data_variant: full           # full | lite
+
+  # Xray .dat/.db provider. SagerNet falls back to Loyalsoldier for Xray.
+  geo_data_provider: metacubex # metacubex | loyalsoldier | sagernet | custom
+```
+
+Custom rule-set sources use `{tag}` in the URL template:
+
+```yaml
+kernel:
+  geo_rule_set_provider: custom
+  geoip_rule_set_url: https://rules.example/geoip/{tag}.srs
+  geosite_rule_set_url: https://rules.example/geosite/{tag}.srs
+```
+
+Downloaded SRS files are stored under
+`geo_data_dir/rulesets/<provider>/<variant>/<geoip|geosite>/`. The node tries
+jsDelivr first, falls back to GitHub, keeps a valid cached file if an update
+fails, and refreshes rule-sets daily.
 
 ## Best Practices
 
