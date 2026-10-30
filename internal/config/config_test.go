@@ -486,6 +486,7 @@ func TestExpandMachineNode_AssignsAuditPort(t *testing.T) {
 			SingBoxAuditAPIEnabled:  true,
 			SingBoxAuditAPIBasePort: 19090,
 			SingBoxAuditAPISecret:   "local-secret",
+			XrayAccessLog:           "/var/log/xboard-node/xray-{node_id}.log",
 		},
 		Machine: &MachineConfig{MachineID: 4, Token: "machine-token"},
 	}
@@ -495,6 +496,9 @@ func TestExpandMachineNode_AssignsAuditPort(t *testing.T) {
 	}
 	if node.Panel.NodeID != 33 || node.Panel.MachineID != 4 {
 		t.Fatalf("machine node identity = %+v", node.Panel)
+	}
+	if got, want := node.Kernel.XrayAccessLog, "/var/log/xboard-node/xray-33.log"; got != want {
+		t.Fatalf("xray access log = %q, want %q", got, want)
 	}
 }
 

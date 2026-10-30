@@ -29,6 +29,10 @@ All notable fork changes are recorded here. Release dates use the
   can attribute sing-box connections when the Clash API omits the user.
 - Let the traffic-audit collector correlate AnyTLS user IDs by destination
   within a short TTL and associate Xray access-log records with panel users.
+- Add machine-token audit bootstrap, automatic collector installation from
+  GitHub releases, and one-command provisioning for new machines.
+- Publish per-node Xray access-log targets through the machine audit manifest
+  so newly added Xray nodes do not require collector reconfiguration.
 - Split managed kernel generation into stable compiler boundaries:
   `route_compiler.go`, `outbound_compiler.go`, `reality_override.go` for Xray,
   and `route_compiler.go`, `outbound_compiler.go`, `rule_set_compiler.go` for

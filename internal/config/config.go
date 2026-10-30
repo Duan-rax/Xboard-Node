@@ -954,6 +954,13 @@ func (c *Config) ExpandMachineNode(nodeID int, nodeType string) *Config {
 		nodeCfg.Kernel.GeoDataDir = c.Kernel.GeoDataDir
 	}
 	nodeCfg.Cert.CertDir = filepath.Join(nodeCfg.Kernel.ConfigDir, "certs")
+	if nodeCfg.Kernel.XrayAccessLog != "" {
+		nodeCfg.Kernel.XrayAccessLog = strings.ReplaceAll(
+			nodeCfg.Kernel.XrayAccessLog,
+			"{node_id}",
+			strconv.Itoa(nodeID),
+		)
+	}
 	nodeCfg.setSingBoxAuditPort(nodeID)
 
 	return &nodeCfg

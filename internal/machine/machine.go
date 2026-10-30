@@ -164,6 +164,20 @@ func (o *Orchestrator) startNode(ctx context.Context, mn panel.MachineNode) {
 		o.mu.Unlock()
 		o.writeAuditManifest()
 	}
+	if nodeCfg.Kernel.Type == "xray" && nodeCfg.Kernel.XrayAccessLog != "" {
+		target := &auditmanifest.Target{
+			NodeID:        strconv.Itoa(mn.ID),
+			PanelNodeID:   mn.ID,
+			Kernel:        "xray",
+			XrayAccessLog: nodeCfg.Kernel.XrayAccessLog,
+		}
+		o.mu.Lock()
+		if handle := o.nodes[mn.ID]; handle != nil {
+			handle.auditTarget = target
+		}
+		o.mu.Unlock()
+		o.writeAuditManifest()
+	}
 	// Reset cached ETag so the subsequent GetConfig in Initial() gets a full response.
 	perNodeClient.ResetConfigETag()
 

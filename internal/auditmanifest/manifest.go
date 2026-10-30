@@ -17,6 +17,7 @@ type Target struct {
 	ClashAPI           string `json:"clash_api"`
 	ClashSecret        string `json:"clash_secret"`
 	SingBoxJournalUnit string `json:"singbox_journal_unit"`
+	XrayAccessLog      string `json:"xray_access_log,omitempty"`
 }
 
 type Manifest struct {

@@ -158,5 +158,6 @@ jobs:
             dist/xbctl-linux-arm64
             dist/traffic-audit-collector-linux-amd64
             dist/traffic-audit-collector-linux-arm64
+            install-fork.sh
             dist/SHA256SUMS
 

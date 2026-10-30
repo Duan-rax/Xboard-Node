@@ -87,6 +87,19 @@ Create the parent directory with permissions that permit the Xboard-Node service
 
 ## Build and run
 
+### Automatic machine installation
+
+The panel's machine installation command downloads `install-fork.sh` from the
+latest GitHub release. In machine mode the installer authenticates with the
+machine token, fetches the panel audit bootstrap, writes private sing-box audit
+settings, and installs the matching `traffic-audit-collector` release artifact.
+No Webhook Secret needs to be copied into the command line or installer output.
+
+Pass `--no-audit` to the installer only when collector setup must be skipped.
+For Xray, the installer uses
+`/var/log/xboard-node/xray-{node_id}.log`; Xboard-Node expands the node ID and
+publishes both sing-box and Xray targets through the audit manifest.
+
 ```bash
 go build -trimpath -ldflags="-s -w" -o traffic-audit-collector .
 sudo install -m 0755 traffic-audit-collector /usr/local/bin/traffic-audit-collector

@@ -1230,6 +1230,11 @@ func runConfigInit(args []string) error {
 		installRoot    string
 		token          string
 		releaseVersion string
+		singboxAudit   bool
+		auditBasePort  int
+		auditSecret    string
+		auditManifest  string
+		xrayAccessLog  string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -1304,6 +1309,24 @@ func runConfigInit(args []string) error {
 		case "--version":
 			i++
 			releaseVersion = args[i]
+		case "--singbox-audit-api":
+			singboxAudit = true
+		case "--singbox-audit-base-port":
+			i++
+			v, err := strconv.Atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("invalid --singbox-audit-base-port: %w", err)
+			}
+			auditBasePort = v
+		case "--singbox-audit-secret":
+			i++
+			auditSecret = args[i]
+		case "--audit-manifest-path":
+			i++
+			auditManifest = args[i]
+		case "--xray-access-log":
+			i++
+			xrayAccessLog = args[i]
 		}
 	}
 
@@ -1324,8 +1347,13 @@ func runConfigInit(args []string) error {
 	inst := config.Config{
 		Panel: config.PanelConfig{URL: panelURL},
 		Kernel: config.KernelConfig{
-			Type:     kernelType,
-			LogLevel: "warn",
+			Type:                    kernelType,
+			LogLevel:                "warn",
+			XrayAccessLog:           xrayAccessLog,
+			SingBoxAuditAPIEnabled:  singboxAudit,
+			SingBoxAuditAPIBasePort: auditBasePort,
+			SingBoxAuditAPISecret:   auditSecret,
+			AuditManifestPath:       auditManifest,
 		},
 		Log:        config.LogConfig{Level: "info", Output: "stdout"},
 		HealthPort: healthPort,
