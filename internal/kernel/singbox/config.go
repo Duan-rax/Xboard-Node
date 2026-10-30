@@ -546,7 +546,8 @@ func singboxIPMatcher(match model.RouteMatch) M {
 func automaticGeoTags(prefix string, values []string) []string {
 	tags := make([]string, 0, len(values))
 	for _, value := range values {
-		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, strings.TrimSuffix(prefix, "-")) + ":"))
+		value = strings.ToLower(strings.TrimSpace(value))
+		value = strings.TrimPrefix(value, strings.TrimSuffix(prefix, "-")+":")
 		if value != "" {
 			tags = append(tags, prefix+value)
 		}
