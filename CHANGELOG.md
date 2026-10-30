@@ -24,6 +24,11 @@ All notable fork changes are recorded here. Release dates use the
 - Report the kernel name, effective embedded module version and structured
   route feature manifest in every node status update for panel capability
   negotiation.
+- Split managed kernel generation into stable compiler boundaries:
+  `route_compiler.go`, `outbound_compiler.go`, `reality_override.go` for Xray,
+  and `route_compiler.go`, `outbound_compiler.go`, `rule_set_compiler.go` for
+  Sing-box. Kernel `config.go` files now retain inbound/config assembly, custom
+  config merging and stable call sites instead of all managed-rule logic.
 
 ### Fixed
 

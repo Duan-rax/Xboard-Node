@@ -151,6 +151,30 @@ advertises sing-box's native `rule_set` tag capability. The panel uses the
 manifest to reject incompatible route bindings before generating a bad node
 config.
 
+## Compiler Layout
+
+Managed routing and outbound generation are separated from kernel lifecycle and
+inbound assembly:
+
+```text
+internal/kernel/xray/
+├── config.go
+├── route_compiler.go
+├── outbound_compiler.go
+└── reality_override.go
+
+internal/kernel/singbox/
+├── config.go
+├── route_compiler.go
+├── outbound_compiler.go
+└── rule_set_compiler.go
+```
+
+`config.go` keeps the authoritative `buildConfig` entry point, inbound
+construction, custom-config merging and final egress placement. The compiler
+files contain deterministic panel-rule and outbound transformation logic. This
+reduces future upstream merge conflicts without changing generated JSON.
+
 ## Geo Data Sources
 
 Geo databases are downloaded on each backend node, not on the panel host.
