@@ -643,7 +643,10 @@ fetch_audit_bootstrap() {
         return
     fi
 
-    AUDIT_PANEL_EVENT_URL=$(json_string panel_event_url)
+    local audit_event_path
+    audit_event_path=$(json_string panel_event_path)
+    [ -n "$audit_event_path" ] || audit_event_path="/api/v1/traffic-audit/events"
+    AUDIT_PANEL_EVENT_URL="${PANEL_URL%/}${audit_event_path}"
     AUDIT_WEBHOOK_SECRET=$(json_string webhook_secret)
     AUDIT_MANIFEST_PATH=$(json_string audit_manifest_path)
     AUDIT_XRAY_ACCESS_LOG=$(json_string xray_access_log_pattern)
