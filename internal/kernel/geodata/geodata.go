@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	providerMetaCubeX  = "metacubex"
+	maxDownloadSize   int64 = 256 << 20
+	providerMetaCubeX       = "metacubex"
 	providerSagerNet   = "sagernet"
 	providerLoyal      = "loyalsoldier"
 	providerCustom     = "custom"
@@ -296,9 +297,18 @@ func atomicDownload(dst, sourceURL string) error {
 	tmp := f.Name()
 	defer os.Remove(tmp)
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if resp.ContentLength > maxDownloadSize {
+		f.Close()
+		return fmt.Errorf("download from %s is too large: %d bytes", sourceURL, resp.ContentLength)
+	}
+	written, err := io.Copy(f, io.LimitReader(resp.Body, maxDownloadSize+1))
+	if err != nil {
 		f.Close()
 		return fmt.Errorf("write geo data: %w", err)
+	}
+	if written > maxDownloadSize {
+		f.Close()
+		return fmt.Errorf("download from %s exceeds %d bytes", sourceURL, maxDownloadSize)
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
