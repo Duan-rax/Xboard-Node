@@ -58,6 +58,12 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		},
 		"outbounds": outbounds,
 	}
+	if hasPanelDNSRoute(nc.Routes) {
+		cfg["dns"] = M{
+			"servers": []M{{"type": "local", "tag": "local"}},
+			"final":   "local",
+		}
+	}
 
 	inbound := buildInbound(nc, users, tc)
 	if inbound != nil {
@@ -85,11 +91,20 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	return cfg
 }
 
+func hasPanelDNSRoute(rules []model.RouteRule) bool {
+	for _, rule := range rules {
+		if !rule.Disabled && strings.EqualFold(strings.TrimSpace(rule.Action), "dns") {
+			return true
+		}
+	}
+	return false
+}
+
 func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
 	tag := model.EgressProxyTag(proxy.ID)
 	config := proxy.Config
 	base := M{"tag": tag, "server": proxy.Host, "server_port": proxy.Port}
-	credentials := func(m M) {
+	userPassword := func(m M) {
 		if proxy.Username != "" {
 			m["username"] = proxy.Username
 		}
@@ -102,17 +117,17 @@ func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
 	case "socks5":
 		base["type"] = "socks"
 		base["version"] = "5"
-		credentials(base)
+		userPassword(base)
 	case "http":
 		base["type"] = "http"
-		credentials(base)
+		userPassword(base)
 		if tls != nil {
 			base["tls"] = tls
 		}
 	case "shadowsocks":
 		base["type"] = "shadowsocks"
 		base["method"] = config["method"]
-		credentials(base)
+		base["password"] = proxy.Password
 	case "vless":
 		base["type"] = "vless"
 		base["uuid"] = config["uuid"]
@@ -124,7 +139,7 @@ func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
 		}
 	case "trojan":
 		base["type"] = "trojan"
-		credentials(base)
+		base["password"] = proxy.Password
 		if tls != nil {
 			base["tls"] = tls
 		}
@@ -146,6 +161,14 @@ func egressProxyTLS(proxy *model.EgressProxyConfig) M {
 	}
 	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
 		tls["reality"] = M{"enabled": true, "public_key": reality["public_key"], "short_id": reality["short_id"]}
+		fingerprint := egressStringValue(reality, "fingerprint")
+		if fingerprint == "" {
+			fingerprint = egressStringValue(proxy.Config, "fingerprint")
+		}
+		if fingerprint == "" {
+			fingerprint = "chrome"
+		}
+		tls["utls"] = M{"enabled": true, "fingerprint": fingerprint}
 	}
 	return tls
 }
@@ -321,7 +344,14 @@ func compilePanelRouteRule(pr model.RouteRule) []M {
 	if strings.EqualFold(pr.MatchMode, "all") {
 		return compilePanelRouteAll(match, action)
 	}
-	return compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
+	compiled := compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
+	if action.Type == "dns" {
+		for _, entry := range compiled {
+			delete(entry, "outbound")
+			entry["action"] = "hijack-dns"
+		}
+	}
+	return compiled
 }
 
 func panelRouteAction(rule model.RouteRule) model.RouteAction {
@@ -333,11 +363,7 @@ func panelRouteAction(rule model.RouteRule) model.RouteAction {
 		action.Type = "route"
 		action.Target = rule.ActionValue
 	case "dns":
-		action.Type = "route"
-		action.Target = rule.ActionValue
-		if action.Target == "" {
-			action.Target = "dns-out"
-		}
+		action.Type = "dns"
 	}
 	return action
 }
@@ -363,7 +389,12 @@ func panelRouteMatch(rule model.RouteRule) model.RouteMatch {
 }
 
 func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M {
-	entry := M{"outbound": singboxOutboundForAction(action)}
+	entry := M{}
+	if action.Type == "dns" {
+		entry["action"] = "hijack-dns"
+	} else {
+		entry["outbound"] = singboxOutboundForAction(action)
+	}
 	resultCount := 0
 	if len(match.Domains) > 0 {
 		entry["domain"] = copyStrings(match.Domains)

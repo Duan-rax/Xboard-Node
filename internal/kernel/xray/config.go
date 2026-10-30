@@ -50,6 +50,13 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		// block is often added after direct but before others for safety
 		outbounds = append(outbounds, M{"protocol": "blackhole", "tag": "block"})
 	}
+	if hasPanelDNSRoute(nc.Routes) && !tags["dns-out"] {
+		outbounds = append(outbounds, M{
+			"protocol": "dns",
+			"tag":      "dns-out",
+			"settings": M{"rules": []M{{"action": "hijack"}}},
+		})
+	}
 
 	cfg := M{
 		"log": M{
@@ -144,17 +151,46 @@ func egressProxyStreamSettings(proxy *model.EgressProxyConfig) M {
 		network = "tcp"
 	}
 	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
-		settings := M{"show": false, "publicKey": reality["public_key"], "shortId": reality["short_id"]}
-		if name := proxy.TLSServerName; name != "" {
+		fingerprint := egressStringValue(reality, "fingerprint")
+		if fingerprint == "" {
+			fingerprint = egressStringValue(proxy.Config, "fingerprint")
+		}
+		if fingerprint == "" {
+			fingerprint = "chrome"
+		}
+		settings := M{
+			"show":        false,
+			"password":    reality["public_key"],
+			"shortId":     reality["short_id"],
+			"fingerprint": fingerprint,
+		}
+		name := proxy.TLSServerName
+		if name == "" {
+			name = egressStringValue(proxy.Config, "server_name")
+		}
+		if name != "" {
 			settings["serverName"] = name
 		}
 		return M{"network": network, "security": "reality", "realitySettings": settings}
 	}
 	settings := M{"allowInsecure": proxy.AllowInsecure}
-	if name := proxy.TLSServerName; name != "" {
+	name := proxy.TLSServerName
+	if name == "" {
+		name = egressStringValue(proxy.Config, "server_name")
+	}
+	if name != "" {
 		settings["serverName"] = name
 	}
 	return M{"network": network, "security": "tls", "tlsSettings": settings}
+}
+
+func hasPanelDNSRoute(rules []model.RouteRule) bool {
+	for _, rule := range rules {
+		if !rule.Disabled && strings.EqualFold(strings.TrimSpace(rule.Action), "dns") {
+			return true
+		}
+	}
+	return false
 }
 
 func egressStringValue(values map[string]any, key string) string {

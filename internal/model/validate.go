@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cedar2025/xboard-node/internal/config"
@@ -47,6 +48,9 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 	if err := ValidateCustomRouteRules(n.CustomRouteRules, kernelType, availableTags); err != nil {
 		return fmt.Errorf("validate custom route rules: %w", err)
 	}
+	if err := ValidatePanelRouteRules(n.Routes, kernelType, availableTags); err != nil {
+		return fmt.Errorf("validate panel route rules: %w", err)
+	}
 	if err := validateTransportKernel(n.Network, kernelType); err != nil {
 		return err
 	}
@@ -68,14 +72,37 @@ func validateEgressProxy(proxy *EgressProxyConfig, kernelType string, existingTa
 	if !map[string]bool{"socks5": true, "http": true, "shadowsocks": true, "vless": true, "trojan": true}[protocol] {
 		return fmt.Errorf("validate egress proxy: protocol %q is not supported", proxy.Protocol)
 	}
-	if protocol == "shadowsocks" && strings.TrimSpace(stringValue(proxy.Config, "method")) == "" {
-		return fmt.Errorf("validate egress proxy: shadowsocks requires config.method")
+	if protocol == "shadowsocks" {
+		if strings.TrimSpace(stringValue(proxy.Config, "method")) == "" {
+			return fmt.Errorf("validate egress proxy: shadowsocks requires config.method")
+		}
+		if strings.TrimSpace(proxy.Password) == "" {
+			return fmt.Errorf("validate egress proxy: shadowsocks requires a password")
+		}
 	}
-	if protocol == "vless" && strings.TrimSpace(stringValue(proxy.Config, "uuid")) == "" {
-		return fmt.Errorf("validate egress proxy: vless requires config.uuid")
+	if protocol == "vless" {
+		uuid := strings.TrimSpace(stringValue(proxy.Config, "uuid"))
+		if uuid == "" {
+			return fmt.Errorf("validate egress proxy: vless requires config.uuid")
+		}
+		if !uuidPattern.MatchString(uuid) {
+			return fmt.Errorf("validate egress proxy: vless config.uuid must use the standard 36-character UUID format")
+		}
 	}
 	if protocol == "trojan" && strings.TrimSpace(proxy.Password) == "" {
 		return fmt.Errorf("validate egress proxy: trojan requires a password")
+	}
+	if reality, ok := mapValue(proxy.Config, "reality"); ok && len(reality) > 0 {
+		if strings.TrimSpace(stringValue(reality, "public_key")) == "" {
+			return fmt.Errorf("validate egress proxy: reality requires config.reality.public_key")
+		}
+		shortID := strings.TrimSpace(stringValue(reality, "short_id"))
+		if !realityShortIDPattern.MatchString(shortID) {
+			return fmt.Errorf("validate egress proxy: reality config.reality.short_id must be 2-16 even-length hexadecimal characters")
+		}
+		if strings.TrimSpace(proxy.TLSServerName) == "" && strings.TrimSpace(stringValue(proxy.Config, "server_name")) == "" {
+			return fmt.Errorf("validate egress proxy: reality requires tls_server_name")
+		}
 	}
 	tag := EgressProxyTag(proxy.ID)
 	for _, existingTag := range existingTags {
@@ -84,6 +111,19 @@ func validateEgressProxy(proxy *EgressProxyConfig, kernelType string, existingTa
 		}
 	}
 	return nil
+}
+
+var (
+	uuidPattern           = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	realityShortIDPattern = regexp.MustCompile(`(?i)^(?:[0-9a-f]{2}){1,8}$`)
+)
+
+func mapValue(values map[string]any, key string) (map[string]any, bool) {
+	if values == nil {
+		return nil, false
+	}
+	value, ok := values[key].(map[string]any)
+	return value, ok
 }
 
 func stringValue(values map[string]any, key string) string {
