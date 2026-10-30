@@ -267,6 +267,9 @@ type RouteMatch struct {
 	Networks       []string `json:"networks,omitempty"`
 	SourceCIDRs    []string `json:"source_cidrs,omitempty"`
 	SourcePorts    []string `json:"source_ports,omitempty"`
+	GeoIP          []string `json:"geoip,omitempty"`
+	GeoSite        []string `json:"geosite,omitempty"`
+	RuleSets       []string `json:"rule_sets,omitempty"`
 }
 
 type RouteAction struct {

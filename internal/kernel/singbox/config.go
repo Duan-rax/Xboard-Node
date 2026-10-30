@@ -76,7 +76,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	// Automatically enable rule_set caching (cache_file) when panel routes
 	// reference geoip:/geosite: entries so that the downloaded .srs rule_set
 	// files survive across process restarts.
-	if kernel.NeedsGeoIP(nc.Routes) || kernel.NeedsGeoSite(nc.Routes) || kernel.NeedsGeoIPRules(nc.CustomRouteRules) || kernel.NeedsGeoSiteRules(nc.CustomRouteRules) {
+	if kernel.NeedsGeoIP(nc.Routes) || kernel.NeedsGeoSite(nc.Routes) || kernel.NeedsRuleSets(nc.Routes) || kernel.NeedsGeoIPRules(nc.CustomRouteRules) || kernel.NeedsGeoSiteRules(nc.CustomRouteRules) || kernel.NeedsRuleSetRules(nc.CustomRouteRules) {
 		cfg["experimental"] = M{
 			"cache_file": M{
 				"enabled": true,
@@ -328,10 +328,14 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 		rules = append(rules, compilePanelRouteRule(pr)...)
 	}
 
-	return M{
+	route := M{
 		"final": "direct",
 		"rules": rules,
 	}
+	if ruleSets := automaticGeoRuleSets(panelRoutes, customRules); len(ruleSets) > 0 {
+		route["rule_set"] = ruleSets
+	}
+	return route
 }
 
 func compilePanelRouteRule(pr model.RouteRule) []M {
@@ -376,6 +380,14 @@ func panelRouteMatch(rule model.RouteRule) model.RouteMatch {
 	for _, item := range rule.Match {
 		item = strings.TrimSpace(item)
 		if item == "" {
+			continue
+		}
+		if strings.HasPrefix(item, "geoip:") {
+			match.GeoIP = append(match.GeoIP, strings.TrimPrefix(item, "geoip:"))
+			continue
+		}
+		if strings.HasPrefix(item, "geosite:") {
+			match.GeoSite = append(match.GeoSite, strings.TrimPrefix(item, "geosite:"))
 			continue
 		}
 		item = strings.TrimPrefix(item, "*.")
@@ -437,6 +449,15 @@ func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M 
 			entry["source_port_range"] = ranges
 			resultCount++
 		}
+	}
+	if tags, private := singboxRuleSetMatch(match); len(tags) > 0 || private {
+		if len(tags) > 0 {
+			entry["rule_set"] = tags
+		}
+		if private {
+			entry["ip_is_private"] = true
+		}
+		resultCount++
 	}
 	if resultCount == 0 {
 		return nil
@@ -504,7 +525,100 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 		}
 		compiled = append(compiled, entry)
 	}
+	if tags, private := singboxRuleSetMatch(rule.Match); len(tags) > 0 || private {
+		entry := M{"outbound": outbound}
+		if len(tags) > 0 {
+			entry["rule_set"] = tags
+		}
+		if private {
+			entry["ip_is_private"] = true
+		}
+		compiled = append(compiled, entry)
+	}
 	return compiled
+}
+
+func singboxRuleSetMatch(match model.RouteMatch) ([]string, bool) {
+	tags := make([]string, 0, len(match.GeoIP)+len(match.GeoSite)+len(match.RuleSets))
+	private := false
+	for _, value := range match.GeoIP {
+		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geoip:")))
+		if value == "" {
+			continue
+		}
+		if value == "private" {
+			private = true
+			continue
+		}
+		tags = append(tags, "geoip-"+value)
+	}
+	for _, value := range match.GeoSite {
+		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geosite:")))
+		if value != "" {
+			tags = append(tags, "geosite-"+value)
+		}
+	}
+	for _, value := range match.RuleSets {
+		if value = strings.TrimSpace(value); value != "" {
+			tags = append(tags, value)
+		}
+	}
+	return uniqueStrings(tags), private
+}
+
+func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule) []M {
+	definitions := map[string]M{}
+	add := func(match model.RouteMatch) {
+		for _, value := range match.GeoIP {
+			code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geoip:")))
+			if code == "" || code == "private" {
+				continue
+			}
+			tag := "geoip-" + code
+			definitions[tag] = M{"type": "remote", "tag": tag, "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/" + tag + ".srs", "update_interval": "1d"}
+		}
+		for _, value := range match.GeoSite {
+			code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geosite:")))
+			if code == "" {
+				continue
+			}
+			tag := "geosite-" + code
+			definitions[tag] = M{"type": "remote", "tag": tag, "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/" + tag + ".srs", "update_interval": "1d"}
+		}
+	}
+	for _, route := range panelRoutes {
+		if !route.Disabled {
+			add(panelRouteMatch(route))
+		}
+	}
+	for _, rule := range customRules {
+		if !rule.Disabled {
+			add(rule.Match)
+		}
+	}
+	tags := make([]string, 0, len(definitions))
+	for tag := range definitions {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	result := make([]M, 0, len(tags))
+	for _, tag := range tags {
+		result = append(result, definitions[tag])
+	}
+	return result
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func singboxOutboundForAction(action model.RouteAction) string {

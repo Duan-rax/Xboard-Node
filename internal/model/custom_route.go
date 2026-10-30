@@ -15,6 +15,9 @@ type RouteMatch struct {
 	Networks       []string
 	SourceCIDRs    []string
 	SourcePorts    []string
+	GeoIP          []string
+	GeoSite        []string
+	RuleSets       []string
 }
 
 type RouteAction struct {
@@ -47,6 +50,9 @@ func cloneRouteMatch(src RouteMatch) RouteMatch {
 		Networks:       cloneStringSlice(src.Networks),
 		SourceCIDRs:    cloneStringSlice(src.SourceCIDRs),
 		SourcePorts:    cloneStringSlice(src.SourcePorts),
+		GeoIP:          cloneStringSlice(src.GeoIP),
+		GeoSite:        cloneStringSlice(src.GeoSite),
+		RuleSets:       cloneStringSlice(src.RuleSets),
 	}
 }
 

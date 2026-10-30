@@ -68,6 +68,9 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 				Networks:       cloneStringSlice(route.Criteria.Networks),
 				SourceCIDRs:    cloneStringSlice(route.Criteria.SourceCIDRs),
 				SourcePorts:    cloneStringSlice(route.Criteria.SourcePorts),
+				GeoIP:          cloneStringSlice(route.Criteria.GeoIP),
+				GeoSite:        cloneStringSlice(route.Criteria.GeoSite),
+				RuleSets:       cloneStringSlice(route.Criteria.RuleSets),
 			}
 		}
 		routes = append(routes, RouteRule{
@@ -105,6 +108,9 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 				Networks:       cloneStringSlice(rule.Match.Networks),
 				SourceCIDRs:    cloneStringSlice(rule.Match.SourceCIDRs),
 				SourcePorts:    cloneStringSlice(rule.Match.SourcePorts),
+				GeoIP:          cloneStringSlice(rule.Match.GeoIP),
+				GeoSite:        cloneStringSlice(rule.Match.GeoSite),
+				RuleSets:       cloneStringSlice(rule.Match.RuleSets),
 			},
 			Action: RouteAction{
 				Type:   rule.Action.Type,
@@ -235,6 +241,9 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 				Networks:       cloneStringSlice(route.Criteria.Networks),
 				SourceCIDRs:    cloneStringSlice(route.Criteria.SourceCIDRs),
 				SourcePorts:    cloneStringSlice(route.Criteria.SourcePorts),
+				GeoIP:          cloneStringSlice(route.Criteria.GeoIP),
+				GeoSite:        cloneStringSlice(route.Criteria.GeoSite),
+				RuleSets:       cloneStringSlice(route.Criteria.RuleSets),
 			}
 		}
 		routes = append(routes, panel.RouteRule{
@@ -272,6 +281,9 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 				Networks:       cloneStringSlice(rule.Match.Networks),
 				SourceCIDRs:    cloneStringSlice(rule.Match.SourceCIDRs),
 				SourcePorts:    cloneStringSlice(rule.Match.SourcePorts),
+				GeoIP:          cloneStringSlice(rule.Match.GeoIP),
+				GeoSite:        cloneStringSlice(rule.Match.GeoSite),
+				RuleSets:       cloneStringSlice(rule.Match.RuleSets),
 			},
 			Action: panel.RouteAction{
 				Type:   rule.Action.Type,

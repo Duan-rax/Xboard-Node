@@ -646,7 +646,7 @@ func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T
 	vless := egressProxyToSingbox(&model.EgressProxyConfig{
 		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443, TLSServerName: "cdn.test",
 		Config: map[string]any{
-			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"uuid":    "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
 			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
 		},
 	})
@@ -658,7 +658,7 @@ func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T
 func TestBuildRoutes_DNSUsesHijackAction(t *testing.T) {
 	route := buildRoutes([]model.RouteRule{{
 		Criteria: &model.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
-		Action: "dns", MatchMode: "all",
+		Action:   "dns", MatchMode: "all",
 	}}, nil, nil)
 	rules := route["rules"].([]M)
 	last := rules[len(rules)-1]
@@ -884,6 +884,34 @@ func TestBuildRoutes_StructuredPanelRules(t *testing.T) {
 	}
 	if _, ok := last["port_range"]; !ok {
 		t.Fatalf("all-mode rule should include port range matcher: %#v", last)
+	}
+}
+
+func TestBuildRoutes_GeoCollectionsAndNativeRuleSet(t *testing.T) {
+	rules := []model.RouteRule{{
+		Criteria: &model.RouteMatch{
+			GeoIP:    []string{"cn", "private"},
+			GeoSite:  []string{"category-ads-all"},
+			RuleSets: []string{"cn_ip"},
+		},
+		Action: "block",
+	}}
+	route := buildRoutes(rules, nil, nil)
+	compiled := route["rules"].([]M)
+	last := compiled[len(compiled)-1]
+	if last["outbound"] != "block" || last["ip_is_private"] != true {
+		t.Fatalf("unexpected geo collection action: %#v", last)
+	}
+	tags := last["rule_set"].([]string)
+	if len(tags) != 3 || tags[0] != "geoip-cn" || tags[1] != "geosite-category-ads-all" || tags[2] != "cn_ip" {
+		t.Fatalf("unexpected rule-set tags: %#v", tags)
+	}
+	definitions := route["rule_set"].([]M)
+	if len(definitions) != 2 {
+		t.Fatalf("automatic definitions: got %d, want 2: %#v", len(definitions), definitions)
+	}
+	if definitions[0]["tag"] != "geoip-cn" || definitions[1]["tag"] != "geosite-category-ads-all" {
+		t.Fatalf("unexpected automatic definitions: %#v", definitions)
 	}
 }
 

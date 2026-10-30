@@ -110,7 +110,7 @@ func TestBuildConfig_DNSRouteAddsDNSOutbound(t *testing.T) {
 		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
 		Routes: []panel.RouteRule{{
 			Criteria: &panel.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
-			Action: "dns", MatchMode: "all",
+			Action:   "dns", MatchMode: "all",
 		}},
 	}
 	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
@@ -133,9 +133,9 @@ func TestEgressProxyToXray_RealityUsesCurrentClientFields(t *testing.T) {
 	outbound := egressProxyToXray(&model.EgressProxyConfig{
 		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443,
 		Config: map[string]any{
-			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"uuid":        "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
 			"server_name": "cdn.test",
-			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
+			"reality":     map[string]any{"public_key": "key", "short_id": "abcd"},
 		},
 	})
 	reality := outbound["streamSettings"].(M)["realitySettings"].(M)
@@ -530,6 +530,26 @@ func TestBuildRouting_StructuredPanelRules(t *testing.T) {
 	last := compiled[2]
 	if last["outboundTag"] != "warp" || last["network"] != "tcp" || last["port"] != "443" {
 		t.Fatalf("unexpected all-mode rule: %#v", last)
+	}
+}
+
+func TestBuildRouting_GeoCollections(t *testing.T) {
+	rules := []model.RouteRule{{
+		Criteria: &model.RouteMatch{
+			GeoIP:   []string{"cn", "private"},
+			GeoSite: []string{"cn", "category-ads-all"},
+		},
+		Action: "block",
+	}}
+	compiled := buildRouting(rules, nil, nil)["rules"].([]M)
+	if len(compiled) != 3 {
+		t.Fatalf("rules count: got %d, want 3", len(compiled))
+	}
+	if got := compiled[1]["domain"].([]string); len(got) != 2 || got[0] != "geosite:cn" || got[1] != "geosite:category-ads-all" {
+		t.Fatalf("unexpected geosite rule: %#v", compiled[1])
+	}
+	if got := compiled[2]["ip"].([]string); len(got) != 2 || got[0] != "geoip:cn" || got[1] != "geoip:private" {
+		t.Fatalf("unexpected geoip rule: %#v", compiled[2])
 	}
 }
 

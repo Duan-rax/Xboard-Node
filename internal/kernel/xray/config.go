@@ -950,17 +950,24 @@ func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M 
 		"outboundTag": xrayOutboundForAction(action),
 	}
 	resultCount := 0
-	if len(match.Domains) > 0 || len(match.DomainSuffixes) > 0 {
-		domains := make([]string, 0, len(match.Domains)+len(match.DomainSuffixes))
+	if len(match.Domains) > 0 || len(match.DomainSuffixes) > 0 || len(match.GeoSite) > 0 {
+		domains := make([]string, 0, len(match.Domains)+len(match.DomainSuffixes)+len(match.GeoSite))
 		domains = append(domains, match.Domains...)
 		for _, value := range match.DomainSuffixes {
 			domains = append(domains, "domain:"+strings.TrimPrefix(value, "*."))
 		}
+		for _, value := range match.GeoSite {
+			domains = append(domains, "geosite:"+strings.TrimPrefix(value, "geosite:"))
+		}
 		entry["domain"] = domains
 		resultCount++
 	}
-	if len(match.IPCIDRs) > 0 {
-		entry["ip"] = copyStrings(match.IPCIDRs)
+	if len(match.IPCIDRs) > 0 || len(match.GeoIP) > 0 {
+		ips := copyStrings(match.IPCIDRs)
+		for _, value := range match.GeoIP {
+			ips = append(ips, "geoip:"+strings.TrimPrefix(value, "geoip:"))
+		}
+		entry["ip"] = ips
 		resultCount++
 	}
 	if len(match.Ports) > 0 {
@@ -989,8 +996,8 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 	outbound := xrayOutboundForAction(rule.Action)
 	var compiled []M
 
-	if len(rule.Match.Domains) > 0 || len(rule.Match.DomainSuffixes) > 0 {
-		domains := make([]string, 0, len(rule.Match.Domains)+len(rule.Match.DomainSuffixes))
+	if len(rule.Match.Domains) > 0 || len(rule.Match.DomainSuffixes) > 0 || len(rule.Match.GeoSite) > 0 {
+		domains := make([]string, 0, len(rule.Match.Domains)+len(rule.Match.DomainSuffixes)+len(rule.Match.GeoSite))
 		for _, value := range rule.Match.Domains {
 			value = strings.TrimSpace(value)
 			if value == "" {
@@ -1005,6 +1012,12 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 			}
 			domains = append(domains, "domain:"+value)
 		}
+		for _, value := range rule.Match.GeoSite {
+			value = strings.TrimSpace(strings.TrimPrefix(value, "geosite:"))
+			if value != "" {
+				domains = append(domains, "geosite:"+value)
+			}
+		}
 		if len(domains) > 0 {
 			compiled = append(compiled, M{
 				"type":        "field",
@@ -1013,10 +1026,17 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 			})
 		}
 	}
-	if len(rule.Match.IPCIDRs) > 0 {
+	if len(rule.Match.IPCIDRs) > 0 || len(rule.Match.GeoIP) > 0 {
+		ips := copyStrings(rule.Match.IPCIDRs)
+		for _, value := range rule.Match.GeoIP {
+			value = strings.TrimSpace(strings.TrimPrefix(value, "geoip:"))
+			if value != "" {
+				ips = append(ips, "geoip:"+value)
+			}
+		}
 		compiled = append(compiled, M{
 			"type":        "field",
-			"ip":          copyStrings(rule.Match.IPCIDRs),
+			"ip":          ips,
 			"outboundTag": outbound,
 		})
 	}

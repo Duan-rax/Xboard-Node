@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -46,6 +47,15 @@ func ValidateCustomRouteRules(rules []CustomRouteRule, kernelType string, availa
 		if err := validateNetworks(rule.Match.Networks, fmt.Sprintf("custom_route_rules[%d].match.networks", i)); err != nil {
 			return err
 		}
+		if err := validateRouteSetNames(rule.Match.GeoIP, fmt.Sprintf("custom_route_rules[%d].match.geoip", i), false); err != nil {
+			return err
+		}
+		if err := validateRouteSetNames(rule.Match.GeoSite, fmt.Sprintf("custom_route_rules[%d].match.geosite", i), false); err != nil {
+			return err
+		}
+		if err := validateRouteSetNames(rule.Match.RuleSets, fmt.Sprintf("custom_route_rules[%d].match.rule_sets", i), true); err != nil {
+			return err
+		}
 
 		actionType := strings.ToLower(strings.TrimSpace(rule.Action.Type))
 		if actionType == "" {
@@ -88,6 +98,9 @@ func hasRouteMatch(match RouteMatch) bool {
 		match.Networks,
 		match.SourceCIDRs,
 		match.SourcePorts,
+		match.GeoIP,
+		match.GeoSite,
+		match.RuleSets,
 	} {
 		for _, value := range values {
 			if strings.TrimSpace(value) != "" {
@@ -110,6 +123,9 @@ func ensureRouteMatcherSupported(index int, kernelType string, matcherSupport ma
 		"networks":        match.Networks,
 		"source_cidrs":    match.SourceCIDRs,
 		"source_ports":    match.SourcePorts,
+		"geoip":           match.GeoIP,
+		"geosite":         match.GeoSite,
+		"rule_sets":       match.RuleSets,
 	}
 	for matcher, values := range checks {
 		if !hasAnyNonBlank(values) {
@@ -117,6 +133,24 @@ func ensureRouteMatcherSupported(index int, kernelType string, matcherSupport ma
 		}
 		if _, ok := matcherSupport[matcher]; !ok {
 			return fmt.Errorf("custom_route_rules[%d].match.%s is not supported by kernel %q", index, matcher, kernelType)
+		}
+	}
+	return nil
+}
+
+var routeSetNamePattern = regexp.MustCompile(`^[A-Za-z0-9_!@.:+\-]+$`)
+
+func validateRouteSetNames(values []string, field string, preserveCase bool) error {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if len(value) > 128 || !routeSetNamePattern.MatchString(value) {
+			return fmt.Errorf("%s contains invalid name %q", field, value)
+		}
+		if !preserveCase && value != strings.ToLower(value) {
+			return fmt.Errorf("%s must use lowercase names, got %q", field, value)
 		}
 	}
 	return nil

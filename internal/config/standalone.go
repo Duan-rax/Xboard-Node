@@ -73,6 +73,9 @@ type StandaloneRouteMatch struct {
 	Networks       []string `yaml:"networks,omitempty"`
 	SourceCIDRs    []string `yaml:"source_cidrs,omitempty"`
 	SourcePorts    []string `yaml:"source_ports,omitempty"`
+	GeoIP          []string `yaml:"geoip,omitempty"`
+	GeoSite        []string `yaml:"geosite,omitempty"`
+	RuleSets       []string `yaml:"rule_sets,omitempty"`
 }
 
 type StandaloneRouteAction struct {

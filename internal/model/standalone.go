@@ -31,6 +31,9 @@ func NodeSpecFromStandalone(cfg *config.Config) *NodeSpec {
 				Networks:       cloneStringSlice(rule.Match.Networks),
 				SourceCIDRs:    cloneStringSlice(rule.Match.SourceCIDRs),
 				SourcePorts:    cloneStringSlice(rule.Match.SourcePorts),
+				GeoIP:          cloneStringSlice(rule.Match.GeoIP),
+				GeoSite:        cloneStringSlice(rule.Match.GeoSite),
+				RuleSets:       cloneStringSlice(rule.Match.RuleSets),
 			},
 			Action: RouteAction{Type: rule.Action.Type, Target: rule.Action.Target},
 		})
