@@ -10,11 +10,17 @@ type CustomRouteRule struct {
 type RouteMatch struct {
 	Domains        []string
 	DomainSuffixes []string
+	DomainKeywords []string
+	DomainRegexes  []string
 	IPCIDRs        []string
 	Ports          []string
 	Networks       []string
 	SourceCIDRs    []string
 	SourcePorts    []string
+	Protocols      []string
+	GeoIP          []string
+	GeoSite        []string
+	RuleSets       []string
 }
 
 type RouteAction struct {
@@ -42,11 +48,17 @@ func cloneRouteMatch(src RouteMatch) RouteMatch {
 	return RouteMatch{
 		Domains:        cloneStringSlice(src.Domains),
 		DomainSuffixes: cloneStringSlice(src.DomainSuffixes),
+		DomainKeywords: cloneStringSlice(src.DomainKeywords),
+		DomainRegexes:  cloneStringSlice(src.DomainRegexes),
 		IPCIDRs:        cloneStringSlice(src.IPCIDRs),
 		Ports:          cloneStringSlice(src.Ports),
 		Networks:       cloneStringSlice(src.Networks),
 		SourceCIDRs:    cloneStringSlice(src.SourceCIDRs),
 		SourcePorts:    cloneStringSlice(src.SourcePorts),
+		Protocols:      cloneStringSlice(src.Protocols),
+		GeoIP:          cloneStringSlice(src.GeoIP),
+		GeoSite:        cloneStringSlice(src.GeoSite),
+		RuleSets:       cloneStringSlice(src.RuleSets),
 	}
 }
 

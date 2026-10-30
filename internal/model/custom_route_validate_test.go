@@ -63,6 +63,18 @@ func TestValidateCustomRouteRules(t *testing.T) {
 			kernel:  "singbox",
 			wantErr: `custom_route_rules[0].match.networks contains unsupported network "icmp"`,
 		},
+		{
+			name:    "unsupported sniff protocol",
+			rules:   []CustomRouteRule{{Match: RouteMatch{Protocols: []string{"thunder"}}, Action: RouteAction{Type: "block"}}},
+			kernel:  "xray",
+			wantErr: `custom_route_rules[0].match.protocols contains unsupported protocol "thunder"`,
+		},
+		{
+			name:    "invalid domain regex",
+			rules:   []CustomRouteRule{{Match: RouteMatch{DomainRegexes: []string{"("}}, Action: RouteAction{Type: "block"}}},
+			kernel:  "singbox",
+			wantErr: "domain_regexes contains invalid expression",
+		},
 	}
 
 	for _, tc := range tests {

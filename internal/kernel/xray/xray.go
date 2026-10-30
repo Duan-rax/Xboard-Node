@@ -15,9 +15,9 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/uuid"
 	xrayCore "github.com/xtls/xray-core/core"
+	featurebandwidth "github.com/xtls/xray-core/features/bandwidth"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/stats"
-	featurebandwidth "github.com/xtls/xray-core/features/bandwidth"
 	"github.com/xtls/xray-core/infra/conf/serial"
 	xrayProxy "github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
@@ -32,8 +32,8 @@ import (
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/kernel/geodata"
-	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/cedar2025/xboard-node/internal/model"
+	"github.com/cedar2025/xboard-node/internal/nlog"
 )
 
 const (
@@ -314,7 +314,7 @@ func (x *Xray) AddUsers(users []model.UserSpec) (int, error) {
 		x.users = merged
 		x.mu.Unlock()
 		x.updateDispatcherLimits(merged)
-	x.updateBandwidthLimits(merged)
+		x.updateBandwidthLimits(merged)
 		return 0, nil
 	}
 
@@ -634,7 +634,14 @@ func (x *Xray) ensureGeoData(nc *model.NodeSpec) {
 		return
 	}
 	dir := x.cfg.GeoDataDir
-	if err := geodata.Ensure(dir, needIP, needSite, "xray"); err != nil {
+	source := geodata.NormalizeSource(geodata.Source{
+		Provider:   x.cfg.GeoDataProvider,
+		Variant:    x.cfg.GeoDataVariant,
+		GeoIPURL:   x.cfg.GeoIPDataURL,
+		GeoSiteURL: x.cfg.GeoSiteDataURL,
+		CacheDir:   dir,
+	})
+	if err := geodata.Ensure(source, needIP, needSite, "xray"); err != nil {
 		nlog.Core().Warn("geo database unavailable", "error", err)
 	}
 	os.Setenv("XRAY_LOCATION_ASSET", dir)

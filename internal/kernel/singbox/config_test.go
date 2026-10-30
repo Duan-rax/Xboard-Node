@@ -1,6 +1,7 @@
 package singbox
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -9,6 +10,9 @@ import (
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/cedar2025/xboard-node/internal/panel"
+	"github.com/sagernet/sing-box/include"
+	"github.com/sagernet/sing-box/option"
+	singJSON "github.com/sagernet/sing/common/json"
 )
 
 var testUsersPanel = []panel.User{
@@ -646,7 +650,7 @@ func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T
 	vless := egressProxyToSingbox(&model.EgressProxyConfig{
 		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443, TLSServerName: "cdn.test",
 		Config: map[string]any{
-			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"uuid":    "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
 			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
 		},
 	})
@@ -658,7 +662,7 @@ func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T
 func TestBuildRoutes_DNSUsesHijackAction(t *testing.T) {
 	route := buildRoutes([]model.RouteRule{{
 		Criteria: &model.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
-		Action: "dns", MatchMode: "all",
+		Action:   "dns", MatchMode: "all",
 	}}, nil, nil)
 	rules := route["rules"].([]M)
 	last := rules[len(rules)-1]
@@ -711,8 +715,8 @@ func TestBuildRoutes_Default(t *testing.T) {
 	if len(rules) < 2 {
 		t.Fatalf("expected at least 2 default rules, got %d", len(rules))
 	}
-	assertMapValue(t, rules[0], "outbound", "block")
-	assertMapValue(t, rules[1], "outbound", "block")
+	assertMapValue(t, rules[0], "action", "reject")
+	assertMapValue(t, rules[1], "action", "reject")
 }
 
 func TestBuildRoutes_WithCustomRules(t *testing.T) {
@@ -724,17 +728,18 @@ func TestBuildRoutes_WithCustomRules(t *testing.T) {
 	route := buildRoutes(testRouteRules(rules), nil, nil)
 	allRules := route["rules"].([]M)
 
-	if len(allRules) != 5 {
-		t.Fatalf("rules count: got %d, want 5", len(allRules))
+	if len(allRules) != 6 {
+		t.Fatalf("rules count: got %d, want 6", len(allRules))
 	}
 
-	assertMapValue(t, allRules[2], "outbound", "block")
-	if _, ok := allRules[2]["domain_suffix"]; !ok {
+	assertMapValue(t, allRules[0], "action", "sniff")
+	assertMapValue(t, allRules[3], "action", "reject")
+	if _, ok := allRules[3]["domain_suffix"]; !ok {
 		t.Error("domain rule should use domain_suffix")
 	}
 
-	assertMapValue(t, allRules[3], "outbound", "block")
-	if _, ok := allRules[3]["ip_cidr"]; !ok {
+	assertMapValue(t, allRules[4], "action", "reject")
+	if _, ok := allRules[4]["ip_cidr"]; !ok {
 		t.Error("IP rule should use ip_cidr")
 	}
 }
@@ -749,31 +754,32 @@ func TestBuildRoutes_MultiMatch(t *testing.T) {
 	route := buildRoutes(testRouteRules(rules), nil, nil)
 	allRules := route["rules"].([]M)
 
-	// 2 default private-IP rules + 1 domain rule + 1 CIDR rule + 1 domain rule = 5
-	if len(allRules) != 5 {
-		t.Fatalf("rules count: got %d, want 5", len(allRules))
+	// sniff + 2 private-IP rules + 1 domain + 1 CIDR + 1 domain = 6
+	if len(allRules) != 6 {
+		t.Fatalf("rules count: got %d, want 6", len(allRules))
 	}
 
 	// Rule #2 (index 2): domains from first route (wildcards stripped)
-	domains := allRules[2]["domain_suffix"].([]string)
+	domains := allRules[3]["domain_suffix"].([]string)
 	if len(domains) != 2 || domains[0] != "evil.com" || domains[1] != "bad.org" {
 		t.Errorf("domain_suffix: got %v, want [evil.com bad.org]", domains)
 	}
-	assertMapValue(t, allRules[2], "outbound", "block")
+	assertMapValue(t, allRules[3], "action", "reject")
 
 	// Rule #3 (index 3): CIDRs from first route
-	cidrs := allRules[3]["ip_cidr"].([]string)
+	cidrs := allRules[4]["ip_cidr"].([]string)
 	if len(cidrs) != 1 || cidrs[0] != "192.168.1.0/24" {
 		t.Errorf("ip_cidr: got %v, want [192.168.1.0/24]", cidrs)
 	}
-	assertMapValue(t, allRules[3], "outbound", "block")
+	assertMapValue(t, allRules[4], "action", "reject")
 
 	// Rule #4 (index 4): direct rule (wildcard stripped)
-	directDomains := allRules[4]["domain_suffix"].([]string)
+	directDomains := allRules[5]["domain_suffix"].([]string)
 	if len(directDomains) != 1 || directDomains[0] != "bypass.com" {
 		t.Errorf("direct domain_suffix: got %v, want [bypass.com]", directDomains)
 	}
-	assertMapValue(t, allRules[4], "outbound", "direct")
+	assertMapValue(t, allRules[5], "action", "route")
+	assertMapValue(t, allRules[5], "outbound", "direct")
 }
 
 func TestBuildRoutes_WithCustomRouteRules(t *testing.T) {
@@ -783,25 +789,29 @@ func TestBuildRoutes_WithCustomRouteRules(t *testing.T) {
 			Match: model.RouteMatch{
 				Domains:        []string{"full.example.com"},
 				DomainSuffixes: []string{"example.org"},
+				DomainKeywords: []string{"tracker"},
+				DomainRegexes:  []string{`(^|\.)cdn[0-9]+\.example$`},
 				IPCIDRs:        []string{"1.1.1.0/24"},
 				Ports:          []string{"53", "1000-1002"},
 				Networks:       []string{"tcp"},
 				SourceCIDRs:    []string{"10.10.0.0/16"},
 				SourcePorts:    []string{"2000-2001"},
+				Protocols:      []string{"bittorrent"},
 			},
 			Action: model.RouteAction{Type: "direct"},
 		},
 	}
 	route := buildRoutes(nil, customRules, nil)
 	allRules := route["rules"].([]M)
-	if len(allRules) != 9 {
-		t.Fatalf("rules count: got %d, want 9", len(allRules))
+	if len(allRules) != 10 {
+		t.Fatalf("rules count: got %d, want 10", len(allRules))
 	}
-	if allRules[0]["domain"].([]string)[0] != "full.example.com" {
-		t.Fatalf("unexpected exact domain rule: %v", allRules[0])
+	assertMapValue(t, allRules[0], "action", "sniff")
+	if allRules[1]["domain"].([]string)[0] != "full.example.com" || allRules[1]["domain_keyword"].([]string)[0] != "tracker" {
+		t.Fatalf("unexpected domain rule: %v", allRules[1])
 	}
-	if allRules[1]["domain_suffix"].([]string)[0] != "example.org" {
-		t.Fatalf("unexpected domain suffix rule: %v", allRules[1])
+	if allRules[1]["domain_suffix"].([]string)[0] != "example.org" || allRules[1]["domain_regex"].([]string)[0] == "" {
+		t.Fatalf("unexpected extended domain rule: %v", allRules[1])
 	}
 	if allRules[2]["ip_cidr"].([]string)[0] != "1.1.1.0/24" {
 		t.Fatalf("unexpected ip cidr rule: %v", allRules[2])
@@ -818,6 +828,9 @@ func TestBuildRoutes_WithCustomRouteRules(t *testing.T) {
 	if allRules[6]["source_port_range"].([]string)[0] != "2000:2001" {
 		t.Fatalf("unexpected source port rule: %v", allRules[6])
 	}
+	if allRules[7]["protocol"].([]string)[0] != "bittorrent" {
+		t.Fatalf("unexpected protocol rule: %v", allRules[7])
+	}
 }
 
 func TestBuildRoutes_StructuredCustomRulesRemainFirst(t *testing.T) {
@@ -828,11 +841,14 @@ func TestBuildRoutes_StructuredCustomRulesRemainFirst(t *testing.T) {
 	}}
 	route := buildRoutes(nil, custom, raw)
 	allRules := route["rules"].([]M)
-	if allRules[0]["outbound"] != "direct" {
-		t.Fatalf("expected structured route first, got %v", allRules[0]["outbound"])
+	if allRules[0]["action"] != "sniff" {
+		t.Fatalf("expected sniff rule first, got %v", allRules[0])
 	}
-	if allRules[1]["outbound"] != "raw-tag" {
-		t.Fatalf("expected raw custom route second, got %v", allRules[1]["outbound"])
+	if allRules[1]["outbound"] != "direct" {
+		t.Fatalf("expected structured route after sniff, got %v", allRules[1])
+	}
+	if allRules[2]["outbound"] != "raw-tag" {
+		t.Fatalf("expected raw custom route next, got %v", allRules[2]["outbound"])
 	}
 }
 
@@ -869,21 +885,99 @@ func TestBuildRoutes_StructuredPanelRules(t *testing.T) {
 
 	route := buildRoutes(rules, nil, nil)
 	compiled := route["rules"].([]M)
-	if len(compiled) != 4 {
-		t.Fatalf("rules count: got %d, want 4", len(compiled))
+	if len(compiled) != 5 {
+		t.Fatalf("rules count: got %d, want 5", len(compiled))
 	}
-	if got := compiled[2]["domain"].([]string)[0]; got != "first.example.com" {
-		t.Fatalf("priority ordering failed: %v", compiled[2])
+	if got := compiled[3]["domain"].([]string)[0]; got != "first.example.com" {
+		t.Fatalf("priority ordering failed: %v", compiled[3])
 	}
-	last := compiled[3]
-	if last["outbound"] != "warp" || last["network"].([]string)[0] != "tcp" {
+	last := compiled[4]
+	if last["outbound"] != "warp" || last["type"] != "logical" || last["mode"] != "and" {
 		t.Fatalf("unexpected all-mode rule: %#v", last)
 	}
-	if _, ok := last["port"]; !ok {
-		t.Fatalf("all-mode rule should include port matcher: %#v", last)
+	logicalRules := last["rules"].([]M)
+	if len(logicalRules) != 3 || logicalRules[2]["network"].([]string)[0] != "tcp" {
+		t.Fatalf("all-mode logical matchers are incomplete: %#v", logicalRules)
 	}
-	if _, ok := last["port_range"]; !ok {
-		t.Fatalf("all-mode rule should include port range matcher: %#v", last)
+}
+
+func TestBuildRoutes_GeoCollectionsAndNativeRuleSet(t *testing.T) {
+	rules := []model.RouteRule{{
+		Criteria: &model.RouteMatch{
+			GeoIP:    []string{"cn", "private"},
+			GeoSite:  []string{"category-ads-all"},
+			RuleSets: []string{"cn_ip"},
+		},
+		Action: "block",
+	}}
+	route := buildRoutes(rules, nil, nil)
+	compiled := route["rules"].([]M)
+	if compiled[0]["action"] != "sniff" {
+		t.Fatalf("geo site rules require sniffing: %#v", compiled[0])
+	}
+	for _, item := range compiled[3:] {
+		if item["action"] != "reject" {
+			t.Fatalf("geo block must use reject action: %#v", item)
+		}
+	}
+	if len(compiled) != 6 {
+		t.Fatalf("compiled geo rule count: got %d, want 6: %#v", len(compiled), compiled)
+	}
+	if got := compiled[3]["rule_set"].([]string); len(got) != 1 || got[0] != "geosite-category-ads-all" {
+		t.Fatalf("geosite matcher must reference its generated definition: %#v", compiled[3])
+	}
+	ipAlternatives := compiled[4]["rules"].([]M)
+	if got := ipAlternatives[1]["rule_set"].([]string); len(got) != 1 || got[0] != "geoip-cn" {
+		t.Fatalf("geoip matcher must reference its generated definition: %#v", compiled[4])
+	}
+	if got := compiled[5]["rule_set"].([]string); len(got) != 1 || got[0] != "cn_ip" {
+		t.Fatalf("native rule-set matcher changed unexpectedly: %#v", compiled[5])
+	}
+	definitions := route["rule_set"].([]M)
+	if len(definitions) != 2 {
+		t.Fatalf("automatic definitions: got %d, want 2: %#v", len(definitions), definitions)
+	}
+	if definitions[0]["tag"] != "geoip-cn" || definitions[1]["tag"] != "geosite-category-ads-all" {
+		t.Fatalf("unexpected automatic definitions: %#v", definitions)
+	}
+	if got := definitions[0]["url"].(string); got != "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs" {
+		t.Fatalf("MetaCubeX GeoIP URL = %q", got)
+	}
+	if got := definitions[1]["url"].(string); got != "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/category-ads-all.srs" {
+		t.Fatalf("MetaCubeX GeoSite URL = %q", got)
+	}
+	data, err := json.Marshal(M{"route": route, "outbounds": []M{{"type": "direct", "tag": "direct"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := include.Context(context.Background())
+	if _, err := singJSON.UnmarshalExtendedContext[option.Options](ctx, data); err != nil {
+		t.Fatalf("latest sing-box route options rejected generated rule-sets: %v\n%s", err, data)
+	}
+}
+
+func TestMergeSingboxRuleSets_CustomDefinitionWins(t *testing.T) {
+	generated := []M{
+		{"type": "remote", "tag": "geoip-cn", "url": "https://generated/geoip-cn.srs"},
+		{"type": "remote", "tag": "geosite-cn", "url": "https://generated/geosite-cn.srs"},
+	}
+	merged := mergeSingboxRuleSets(generated, []any{
+		map[string]any{"type": "local", "tag": "geoip-cn", "path": "/etc/rules/cn.srs"},
+	})
+	if len(merged) != 2 || merged[0]["tag"] != "geosite-cn" || merged[1]["path"] != "/etc/rules/cn.srs" {
+		t.Fatalf("custom rule-set did not replace generated tag: %#v", merged)
+	}
+}
+
+func TestMergeSingboxExperimental_PreservesGeneratedCache(t *testing.T) {
+	experimental := M{"cache_file": M{"enabled": true, "path": "/tmp/cache.db"}}
+	mergeSingboxMap(experimental, map[string]any{"clash_api": map[string]any{"external_controller": "127.0.0.1:9090"}})
+	cache := experimental["cache_file"].(map[string]any)
+	if cache["enabled"] != true || cache["path"] != "/tmp/cache.db" {
+		t.Fatalf("generated cache settings were lost: %#v", experimental)
+	}
+	if _, ok := experimental["clash_api"]; !ok {
+		t.Fatalf("custom experimental settings were not merged: %#v", experimental)
 	}
 }
 

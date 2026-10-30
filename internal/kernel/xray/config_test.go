@@ -110,7 +110,7 @@ func TestBuildConfig_DNSRouteAddsDNSOutbound(t *testing.T) {
 		Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm",
 		Routes: []panel.RouteRule{{
 			Criteria: &panel.RouteMatch{Ports: []string{"53"}, Networks: []string{"udp"}},
-			Action: "dns", MatchMode: "all",
+			Action:   "dns", MatchMode: "all",
 		}},
 	}
 	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
@@ -133,9 +133,9 @@ func TestEgressProxyToXray_RealityUsesCurrentClientFields(t *testing.T) {
 	outbound := egressProxyToXray(&model.EgressProxyConfig{
 		ID: 3, Protocol: "vless", Host: "proxy.test", Port: 443,
 		Config: map[string]any{
-			"uuid": "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
+			"uuid":        "6f0c30dc-5e98-4eb1-a52a-042ea7861e08",
 			"server_name": "cdn.test",
-			"reality": map[string]any{"public_key": "key", "short_id": "abcd"},
+			"reality":     map[string]any{"public_key": "key", "short_id": "abcd"},
 		},
 	})
 	reality := outbound["streamSettings"].(M)["realitySettings"].(M)
@@ -438,10 +438,13 @@ func TestBuildRouting_WithCustomRouteRules(t *testing.T) {
 			Match: model.RouteMatch{
 				Domains:        []string{"full.example.com"},
 				DomainSuffixes: []string{"example.org"},
+				DomainKeywords: []string{"tracker"},
+				DomainRegexes:  []string{`(^|\.)cdn[0-9]+\.example$`},
 				Ports:          []string{"80", "443-445"},
 				Networks:       []string{"tcp", "udp"},
 				SourceCIDRs:    []string{"192.168.1.0/24"},
 				SourcePorts:    []string{"1000-1002"},
+				Protocols:      []string{"bittorrent"},
 			},
 			Action: model.RouteAction{Type: "route", Target: "warp-jp"},
 		},
@@ -449,13 +452,13 @@ func TestBuildRouting_WithCustomRouteRules(t *testing.T) {
 
 	routing := buildRouting(nil, customRules, nil)
 	xrayRules := routing["rules"].([]M)
-	if len(xrayRules) != 6 {
-		t.Fatalf("expected 6 rules, got %d", len(xrayRules))
+	if len(xrayRules) != 7 {
+		t.Fatalf("expected 7 rules, got %d", len(xrayRules))
 	}
 	if xrayRules[0]["outboundTag"] != "warp-jp" {
 		t.Fatalf("expected first custom outbound warp-jp, got %v", xrayRules[0]["outboundTag"])
 	}
-	if got := xrayRules[0]["domain"].([]string); len(got) != 2 || got[0] != "full.example.com" || got[1] != "domain:example.org" {
+	if got := xrayRules[0]["domain"].([]string); len(got) != 4 || got[0] != "full:full.example.com" || got[1] != "domain:example.org" || got[2] != "keyword:tracker" || got[3] != `regexp:(^|\.)cdn[0-9]+\.example$` {
 		t.Fatalf("unexpected custom domains: %v", got)
 	}
 	if got := xrayRules[1]["port"]; got != "80,443-445" {
@@ -464,11 +467,30 @@ func TestBuildRouting_WithCustomRouteRules(t *testing.T) {
 	if got := xrayRules[2]["network"]; got != "tcp,udp" {
 		t.Fatalf("unexpected network matcher: %v", got)
 	}
-	if got := xrayRules[3]["source"].([]string); len(got) != 1 || got[0] != "192.168.1.0/24" {
+	if got := xrayRules[3]["sourceIP"].([]string); len(got) != 1 || got[0] != "192.168.1.0/24" {
 		t.Fatalf("unexpected source cidr matcher: %v", got)
 	}
 	if got := xrayRules[4]["sourcePort"]; got != "1000-1002" {
 		t.Fatalf("unexpected source port matcher: %v", got)
+	}
+	if got := xrayRules[5]["protocol"].([]string); len(got) != 1 || got[0] != "bittorrent" {
+		t.Fatalf("unexpected protocol matcher: %v", got)
+	}
+}
+
+func TestBuildConfig_RouteMatchersEnableSniffing(t *testing.T) {
+	nc := &panel.NodeConfig{
+		Protocol: "vless", ServerPort: 443,
+		Routes: []panel.RouteRule{{
+			Criteria: &panel.RouteMatch{Protocols: []string{"bittorrent"}},
+			Action:   "block",
+		}},
+	}
+	cfg := buildConfig(testKernelCfg, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	inbound := cfg["inbounds"].([]M)[0]
+	sniffing, ok := inbound["sniffing"].(M)
+	if !ok || sniffing["enabled"] != true || sniffing["routeOnly"] != true {
+		t.Fatalf("route sniffing not enabled: %#v", inbound)
 	}
 }
 
@@ -530,6 +552,26 @@ func TestBuildRouting_StructuredPanelRules(t *testing.T) {
 	last := compiled[2]
 	if last["outboundTag"] != "warp" || last["network"] != "tcp" || last["port"] != "443" {
 		t.Fatalf("unexpected all-mode rule: %#v", last)
+	}
+}
+
+func TestBuildRouting_GeoCollections(t *testing.T) {
+	rules := []model.RouteRule{{
+		Criteria: &model.RouteMatch{
+			GeoIP:   []string{"cn", "private"},
+			GeoSite: []string{"cn", "category-ads-all"},
+		},
+		Action: "block",
+	}}
+	compiled := buildRouting(rules, nil, nil)["rules"].([]M)
+	if len(compiled) != 3 {
+		t.Fatalf("rules count: got %d, want 3", len(compiled))
+	}
+	if got := compiled[1]["domain"].([]string); len(got) != 2 || got[0] != "geosite:cn" || got[1] != "geosite:category-ads-all" {
+		t.Fatalf("unexpected geosite rule: %#v", compiled[1])
+	}
+	if got := compiled[2]["ip"].([]string); len(got) != 2 || got[0] != "geoip:cn" || got[1] != "geoip:private" {
+		t.Fatalf("unexpected geoip rule: %#v", compiled[2])
 	}
 }
 

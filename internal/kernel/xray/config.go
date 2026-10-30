@@ -85,6 +85,13 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	inbound := buildInbound(nc, users, tc)
 	if inbound != nil {
 		applyRealityRuntimeOverride(inbound, nc, kcfg)
+		if kernel.NeedsSniff(nc.Routes, nc.CustomRouteRules) {
+			inbound["sniffing"] = M{
+				"enabled":      true,
+				"destOverride": []string{"http", "tls", "quic"},
+				"routeOnly":    true,
+			}
+		}
 		cfg["inbounds"] = []M{inbound}
 	} else {
 		nlog.Core().Warn("xray: unsupported protocol, no inbound configured — node will not accept connections",
@@ -950,17 +957,16 @@ func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M 
 		"outboundTag": xrayOutboundForAction(action),
 	}
 	resultCount := 0
-	if len(match.Domains) > 0 || len(match.DomainSuffixes) > 0 {
-		domains := make([]string, 0, len(match.Domains)+len(match.DomainSuffixes))
-		domains = append(domains, match.Domains...)
-		for _, value := range match.DomainSuffixes {
-			domains = append(domains, "domain:"+strings.TrimPrefix(value, "*."))
-		}
+	if domains := xrayDomainMatchers(match); len(domains) > 0 {
 		entry["domain"] = domains
 		resultCount++
 	}
-	if len(match.IPCIDRs) > 0 {
-		entry["ip"] = copyStrings(match.IPCIDRs)
+	if len(match.IPCIDRs) > 0 || len(match.GeoIP) > 0 {
+		ips := copyStrings(match.IPCIDRs)
+		for _, value := range match.GeoIP {
+			ips = append(ips, "geoip:"+strings.TrimPrefix(value, "geoip:"))
+		}
+		entry["ip"] = ips
 		resultCount++
 	}
 	if len(match.Ports) > 0 {
@@ -972,11 +978,15 @@ func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M 
 		resultCount++
 	}
 	if len(match.SourceCIDRs) > 0 {
-		entry["source"] = copyStrings(match.SourceCIDRs)
+		entry["sourceIP"] = copyStrings(match.SourceCIDRs)
 		resultCount++
 	}
 	if len(match.SourcePorts) > 0 {
 		entry["sourcePort"] = strings.Join(match.SourcePorts, ",")
+		resultCount++
+	}
+	if len(match.Protocols) > 0 {
+		entry["protocol"] = copyStrings(match.Protocols)
 		resultCount++
 	}
 	if resultCount == 0 {
@@ -989,22 +999,7 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 	outbound := xrayOutboundForAction(rule.Action)
 	var compiled []M
 
-	if len(rule.Match.Domains) > 0 || len(rule.Match.DomainSuffixes) > 0 {
-		domains := make([]string, 0, len(rule.Match.Domains)+len(rule.Match.DomainSuffixes))
-		for _, value := range rule.Match.Domains {
-			value = strings.TrimSpace(value)
-			if value == "" {
-				continue
-			}
-			domains = append(domains, value)
-		}
-		for _, value := range rule.Match.DomainSuffixes {
-			value = strings.TrimSpace(value)
-			if value == "" {
-				continue
-			}
-			domains = append(domains, "domain:"+value)
-		}
+	if domains := xrayDomainMatchers(rule.Match); len(domains) > 0 {
 		if len(domains) > 0 {
 			compiled = append(compiled, M{
 				"type":        "field",
@@ -1013,10 +1008,17 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 			})
 		}
 	}
-	if len(rule.Match.IPCIDRs) > 0 {
+	if len(rule.Match.IPCIDRs) > 0 || len(rule.Match.GeoIP) > 0 {
+		ips := copyStrings(rule.Match.IPCIDRs)
+		for _, value := range rule.Match.GeoIP {
+			value = strings.TrimSpace(strings.TrimPrefix(value, "geoip:"))
+			if value != "" {
+				ips = append(ips, "geoip:"+value)
+			}
+		}
 		compiled = append(compiled, M{
 			"type":        "field",
-			"ip":          copyStrings(rule.Match.IPCIDRs),
+			"ip":          ips,
 			"outboundTag": outbound,
 		})
 	}
@@ -1037,7 +1039,7 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 	if len(rule.Match.SourceCIDRs) > 0 {
 		compiled = append(compiled, M{
 			"type":        "field",
-			"source":      copyStrings(rule.Match.SourceCIDRs),
+			"sourceIP":    copyStrings(rule.Match.SourceCIDRs),
 			"outboundTag": outbound,
 		})
 	}
@@ -1048,7 +1050,44 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 			"outboundTag": outbound,
 		})
 	}
+	if len(rule.Match.Protocols) > 0 {
+		compiled = append(compiled, M{
+			"type":        "field",
+			"protocol":    copyStrings(rule.Match.Protocols),
+			"outboundTag": outbound,
+		})
+	}
 	return compiled
+}
+
+func xrayDomainMatchers(match model.RouteMatch) []string {
+	domains := make([]string, 0, len(match.Domains)+len(match.DomainSuffixes)+len(match.DomainKeywords)+len(match.DomainRegexes)+len(match.GeoSite))
+	for _, value := range match.Domains {
+		if value = strings.TrimSpace(strings.TrimPrefix(value, "full:")); value != "" {
+			domains = append(domains, "full:"+value)
+		}
+	}
+	for _, value := range match.DomainSuffixes {
+		if value = strings.TrimSpace(strings.TrimPrefix(value, "domain:")); value != "" {
+			domains = append(domains, "domain:"+strings.TrimPrefix(value, "*."))
+		}
+	}
+	for _, value := range match.DomainKeywords {
+		if value = strings.TrimSpace(strings.TrimPrefix(value, "keyword:")); value != "" {
+			domains = append(domains, "keyword:"+value)
+		}
+	}
+	for _, value := range match.DomainRegexes {
+		if value = strings.TrimSpace(strings.TrimPrefix(value, "regexp:")); value != "" {
+			domains = append(domains, "regexp:"+value)
+		}
+	}
+	for _, value := range match.GeoSite {
+		if value = strings.TrimSpace(strings.TrimPrefix(value, "geosite:")); value != "" {
+			domains = append(domains, "geosite:"+value)
+		}
+	}
+	return domains
 }
 
 func xrayOutboundForAction(action model.RouteAction) string {
