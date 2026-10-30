@@ -46,3 +46,34 @@ func NeedsRuleSets(routes []model.RouteRule) bool {
 	}
 	return false
 }
+
+// NeedsSniff reports whether structured routes depend on a destination domain
+// or a sniffed application protocol. IP/port-only rules do not need payload
+// inspection and therefore avoid the sniffing delay.
+func NeedsSniff(routes []model.RouteRule, customRules []model.CustomRouteRule) bool {
+	matchNeedsSniff := func(match model.RouteMatch) bool {
+		return len(match.Domains) > 0 || len(match.DomainSuffixes) > 0 ||
+			len(match.DomainKeywords) > 0 || len(match.DomainRegexes) > 0 ||
+			len(match.GeoSite) > 0 || len(match.Protocols) > 0
+	}
+	for _, route := range routes {
+		if route.Disabled {
+			continue
+		}
+		if route.Criteria != nil && matchNeedsSniff(*route.Criteria) {
+			return true
+		}
+		for _, value := range route.Match {
+			value = strings.TrimSpace(value)
+			if value != "" && !strings.HasPrefix(value, "geoip:") && !strings.Contains(value, "/") {
+				return true
+			}
+		}
+	}
+	for _, rule := range customRules {
+		if !rule.Disabled && matchNeedsSniff(rule.Match) {
+			return true
+		}
+	}
+	return false
+}

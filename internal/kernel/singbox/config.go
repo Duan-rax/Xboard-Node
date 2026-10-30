@@ -190,7 +190,7 @@ func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
 	rules, _ := route["rules"].([]M)
 	// Keep the configured final outbound intact. The egress is a catch-all
 	// rule after custom/audit/panel rules so hot reload updates it reliably.
-	rules = append(rules, M{"outbound": model.EgressProxyTag(proxy.ID)})
+	rules = append(rules, M{"action": "route", "outbound": model.EgressProxyTag(proxy.ID)})
 	route["rules"] = rules
 }
 
@@ -285,6 +285,9 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 	sort.SliceStable(panelRoutes, func(i, j int) bool {
 		return panelRoutes[i].Priority < panelRoutes[j].Priority
 	})
+	if kernel.NeedsSniff(panelRoutes, customRules) {
+		rules = append(rules, M{"action": "sniff", "timeout": "300ms"})
+	}
 
 	// Structured custom routes now take the highest priority for panel-managed overrides.
 	for _, rule := range customRules {
@@ -302,7 +305,7 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 	// Standard blocks for private IPv4 and IPv6 ranges to prevent SSRF.
 	rules = append(rules,
 		M{
-			"outbound": "block",
+			"action": "reject",
 			"ip_cidr": []string{
 				"10.0.0.0/8",
 				"100.64.0.0/10",
@@ -315,7 +318,7 @@ func buildRoutes(panelRoutes []model.RouteRule, customRules []model.CustomRouteR
 			},
 		},
 		M{
-			"outbound": "block",
+			"action": "reject",
 			"ip_cidr": []string{
 				"fc00::/7",
 				"fe80::/10",
@@ -348,14 +351,7 @@ func compilePanelRouteRule(pr model.RouteRule) []M {
 	if strings.EqualFold(pr.MatchMode, "all") {
 		return compilePanelRouteAll(match, action)
 	}
-	compiled := compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
-	if action.Type == "dns" {
-		for _, entry := range compiled {
-			delete(entry, "outbound")
-			entry["action"] = "hijack-dns"
-		}
-	}
-	return compiled
+	return compileCustomRouteRule(model.CustomRouteRule{Match: match, Action: action})
 }
 
 func panelRouteAction(rule model.RouteRule) model.RouteAction {
@@ -401,68 +397,14 @@ func panelRouteMatch(rule model.RouteRule) model.RouteMatch {
 }
 
 func compilePanelRouteAll(match model.RouteMatch, action model.RouteAction) []M {
-	entry := M{}
-	if action.Type == "dns" {
-		entry["action"] = "hijack-dns"
-	} else {
-		entry["outbound"] = singboxOutboundForAction(action)
-	}
-	resultCount := 0
-	if len(match.Domains) > 0 {
-		entry["domain"] = copyStrings(match.Domains)
-		resultCount++
-	}
-	if len(match.DomainSuffixes) > 0 {
-		entry["domain_suffix"] = copyStrings(match.DomainSuffixes)
-		resultCount++
-	}
-	if len(match.IPCIDRs) > 0 {
-		entry["ip_cidr"] = copyStrings(match.IPCIDRs)
-		resultCount++
-	}
-	if len(match.Ports) > 0 {
-		ports, ranges := splitPorts(match.Ports)
-		if len(ports) > 0 {
-			entry["port"] = ports
-			resultCount++
-		}
-		if len(ranges) > 0 {
-			entry["port_range"] = ranges
-			resultCount++
-		}
-	}
-	if len(match.Networks) > 0 {
-		entry["network"] = copyStrings(match.Networks)
-		resultCount++
-	}
-	if len(match.SourceCIDRs) > 0 {
-		entry["source_ip_cidr"] = copyStrings(match.SourceCIDRs)
-		resultCount++
-	}
-	if len(match.SourcePorts) > 0 {
-		ports, ranges := splitPorts(match.SourcePorts)
-		if len(ports) > 0 {
-			entry["source_port"] = ports
-			resultCount++
-		}
-		if len(ranges) > 0 {
-			entry["source_port_range"] = ranges
-			resultCount++
-		}
-	}
-	if tags, private := singboxRuleSetMatch(match); len(tags) > 0 || private {
-		if len(tags) > 0 {
-			entry["rule_set"] = tags
-		}
-		if private {
-			entry["ip_is_private"] = true
-		}
-		resultCount++
-	}
-	if resultCount == 0 {
+	matchers := singboxMatchGroups(match)
+	if len(matchers) == 0 {
 		return nil
 	}
-	return []M{entry}
+	if len(matchers) == 1 {
+		return []M{applySingboxAction(matchers[0], action)}
+	}
+	return []M{applySingboxAction(M{"type": "logical", "mode": "and", "rules": matchers}, action)}
 }
 
 func compileCustomRouteRule(rule model.CustomRouteRule) []M {
@@ -470,100 +412,145 @@ func compileCustomRouteRule(rule model.CustomRouteRule) []M {
 		return nil
 	}
 
-	outbound := singboxOutboundForAction(rule.Action)
 	var compiled []M
-
-	if len(rule.Match.Domains) > 0 {
-		compiled = append(compiled, M{
-			"domain":   copyStrings(rule.Match.Domains),
-			"outbound": outbound,
-		})
-	}
-	if len(rule.Match.DomainSuffixes) > 0 {
-		compiled = append(compiled, M{
-			"domain_suffix": copyStrings(rule.Match.DomainSuffixes),
-			"outbound":      outbound,
-		})
-	}
-	if len(rule.Match.IPCIDRs) > 0 {
-		compiled = append(compiled, M{
-			"ip_cidr":  copyStrings(rule.Match.IPCIDRs),
-			"outbound": outbound,
-		})
-	}
-	if len(rule.Match.Ports) > 0 {
-		ports, portRanges := splitPorts(rule.Match.Ports)
-		entry := M{"outbound": outbound}
-		if len(ports) > 0 {
-			entry["port"] = ports
-		}
-		if len(portRanges) > 0 {
-			entry["port_range"] = portRanges
-		}
-		compiled = append(compiled, entry)
-	}
-	if len(rule.Match.Networks) > 0 {
-		compiled = append(compiled, M{
-			"network":  copyStrings(rule.Match.Networks),
-			"outbound": outbound,
-		})
-	}
-	if len(rule.Match.SourceCIDRs) > 0 {
-		compiled = append(compiled, M{
-			"source_ip_cidr": copyStrings(rule.Match.SourceCIDRs),
-			"outbound":       outbound,
-		})
-	}
-	if len(rule.Match.SourcePorts) > 0 {
-		ports, portRanges := splitPorts(rule.Match.SourcePorts)
-		entry := M{"outbound": outbound}
-		if len(ports) > 0 {
-			entry["source_port"] = ports
-		}
-		if len(portRanges) > 0 {
-			entry["source_port_range"] = portRanges
-		}
-		compiled = append(compiled, entry)
-	}
-	if tags, private := singboxRuleSetMatch(rule.Match); len(tags) > 0 || private {
-		entry := M{"outbound": outbound}
-		if len(tags) > 0 {
-			entry["rule_set"] = tags
-		}
-		if private {
-			entry["ip_is_private"] = true
-		}
-		compiled = append(compiled, entry)
+	for _, matcher := range singboxMatchGroups(rule.Match) {
+		compiled = append(compiled, applySingboxAction(matcher, rule.Action))
 	}
 	return compiled
 }
 
-func singboxRuleSetMatch(match model.RouteMatch) ([]string, bool) {
-	tags := make([]string, 0, len(match.GeoIP)+len(match.GeoSite)+len(match.RuleSets))
-	private := false
+func applySingboxAction(entry M, action model.RouteAction) M {
+	switch action.Type {
+	case "dns":
+		entry["action"] = "hijack-dns"
+	case "direct":
+		entry["action"] = "route"
+		entry["outbound"] = "direct"
+	case "route":
+		if action.Target == "" {
+			entry["action"] = "reject"
+		} else {
+			entry["action"] = "route"
+			entry["outbound"] = action.Target
+		}
+	default:
+		entry["action"] = "reject"
+	}
+	return entry
+}
+
+func singboxMatchGroups(match model.RouteMatch) []M {
+	groups := make([]M, 0, 8)
+	if matcher := singboxDomainMatcher(match); matcher != nil {
+		groups = append(groups, matcher)
+	}
+	if matcher := singboxIPMatcher(match); matcher != nil {
+		groups = append(groups, matcher)
+	}
+	if len(match.Ports) > 0 {
+		ports, ranges := splitPorts(match.Ports)
+		matcher := M{}
+		if len(ports) > 0 {
+			matcher["port"] = ports
+		}
+		if len(ranges) > 0 {
+			matcher["port_range"] = ranges
+		}
+		groups = append(groups, matcher)
+	}
+	if len(match.Networks) > 0 {
+		groups = append(groups, M{"network": copyStrings(match.Networks)})
+	}
+	if len(match.SourceCIDRs) > 0 {
+		groups = append(groups, M{"source_ip_cidr": copyStrings(match.SourceCIDRs)})
+	}
+	if len(match.SourcePorts) > 0 {
+		ports, ranges := splitPorts(match.SourcePorts)
+		matcher := M{}
+		if len(ports) > 0 {
+			matcher["source_port"] = ports
+		}
+		if len(ranges) > 0 {
+			matcher["source_port_range"] = ranges
+		}
+		groups = append(groups, matcher)
+	}
+	if len(match.Protocols) > 0 {
+		groups = append(groups, M{"protocol": copyStrings(match.Protocols)})
+	}
+	if len(match.RuleSets) > 0 {
+		groups = append(groups, M{"rule_set": uniqueStrings(copyStrings(match.RuleSets))})
+	}
+	return groups
+}
+
+func singboxDomainMatcher(match model.RouteMatch) M {
+	alternatives := make([]M, 0, 2)
+	direct := M{}
+	if len(match.Domains) > 0 {
+		direct["domain"] = copyStrings(match.Domains)
+	}
+	if len(match.DomainSuffixes) > 0 {
+		direct["domain_suffix"] = copyStrings(match.DomainSuffixes)
+	}
+	if len(match.DomainKeywords) > 0 {
+		direct["domain_keyword"] = copyStrings(match.DomainKeywords)
+	}
+	if len(match.DomainRegexes) > 0 {
+		direct["domain_regex"] = copyStrings(match.DomainRegexes)
+	}
+	if len(direct) > 0 {
+		alternatives = append(alternatives, direct)
+	}
+	if tags := automaticGeoTags("geosite-", match.GeoSite); len(tags) > 0 {
+		alternatives = append(alternatives, M{"rule_set": tags})
+	}
+	return logicalOr(alternatives)
+}
+
+func singboxIPMatcher(match model.RouteMatch) M {
+	alternatives := make([]M, 0, 2)
+	direct := M{}
+	if len(match.IPCIDRs) > 0 {
+		direct["ip_cidr"] = copyStrings(match.IPCIDRs)
+	}
+	geoValues := make([]string, 0, len(match.GeoIP))
 	for _, value := range match.GeoIP {
 		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geoip:")))
-		if value == "" {
-			continue
-		}
 		if value == "private" {
-			private = true
-			continue
+			direct["ip_is_private"] = true
+		} else if value != "" {
+			geoValues = append(geoValues, value)
 		}
-		tags = append(tags, "geoip-"+value)
 	}
-	for _, value := range match.GeoSite {
-		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "geosite:")))
+	if len(direct) > 0 {
+		alternatives = append(alternatives, direct)
+	}
+	if tags := automaticGeoTags("geoip-", geoValues); len(tags) > 0 {
+		alternatives = append(alternatives, M{"rule_set": tags})
+	}
+	return logicalOr(alternatives)
+}
+
+func automaticGeoTags(prefix string, values []string) []string {
+	tags := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, strings.TrimSuffix(prefix, "-")) + ":"))
 		if value != "" {
-			tags = append(tags, "geosite-"+value)
+			tags = append(tags, prefix+value)
 		}
 	}
-	for _, value := range match.RuleSets {
-		if value = strings.TrimSpace(value); value != "" {
-			tags = append(tags, value)
-		}
+	return uniqueStrings(tags)
+}
+
+func logicalOr(rules []M) M {
+	if len(rules) == 0 {
+		return nil
 	}
-	return uniqueStrings(tags), private
+	if len(rules) == 1 {
+		return rules[0]
+	}
+	return M{"type": "logical", "mode": "or", "rules": rules}
 }
 
 func automaticGeoRuleSets(panelRoutes []model.RouteRule, customRules []model.CustomRouteRule) []M {
@@ -621,20 +608,6 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
-func singboxOutboundForAction(action model.RouteAction) string {
-	switch action.Type {
-	case "direct":
-		return "direct"
-	case "route":
-		if action.Target != "" {
-			return action.Target
-		}
-		return "block"
-	default:
-		return "block"
-	}
-}
-
 func splitPorts(values []string) ([]int, []string) {
 	var ports []int
 	var ranges []string
@@ -678,9 +651,19 @@ func mergeCustomSingbox(cfg M, kcfg config.KernelConfig) {
 		cfg["dns"] = v
 	}
 
-	// experimental — custom replaces
+	// experimental — custom overrides individual fields while preserving the
+	// generated cache_file required by automatic remote rule-sets.
 	if v, ok := custom["experimental"]; ok {
-		cfg["experimental"] = v
+		if customExperimental, ok := v.(map[string]any); ok {
+			experimental, _ := cfg["experimental"].(M)
+			if experimental == nil {
+				experimental = M{}
+			}
+			mergeSingboxMap(experimental, customExperimental)
+			cfg["experimental"] = experimental
+		} else {
+			cfg["experimental"] = v
+		}
 	}
 
 	// outbounds — append custom entries
@@ -723,10 +706,11 @@ func mergeCustomSingboxRoute(cfg M, customRoute map[string]any) {
 		}
 	}
 
-	// rule_set — custom rule_sets appended
+	// rule_set — custom definitions override automatically generated Geo
+	// definitions with the same tag, avoiding duplicate-tag startup failures.
 	if v, ok := customRoute["rule_set"]; ok {
 		if existing, ok := route["rule_set"].([]M); ok {
-			route["rule_set"] = kernel.MergeAppendList(existing, v)
+			route["rule_set"] = mergeSingboxRuleSets(existing, v)
 		} else {
 			route["rule_set"] = kernel.MergeAppendList(nil, v)
 		}
@@ -739,6 +723,64 @@ func mergeCustomSingboxRoute(cfg M, customRoute map[string]any) {
 		}
 		route[k] = v
 	}
+}
+
+func mergeSingboxMap(dst M, src map[string]any) {
+	for key, value := range src {
+		srcMap, srcOK := value.(map[string]any)
+		dstMap, dstOK := dst[key].(map[string]any)
+		if srcOK && dstOK {
+			mergeSingboxMap(dstMap, srcMap)
+			dst[key] = dstMap
+			continue
+		}
+		dst[key] = value
+	}
+}
+
+func mergeSingboxRuleSets(generated []M, custom any) []M {
+	customItems := kernel.MergeAppendList(nil, custom)
+	overridden := map[string]struct{}{}
+	for _, item := range customItems {
+		for _, tag := range singboxRuleSetTags(item["tag"]) {
+			overridden[tag] = struct{}{}
+		}
+	}
+	merged := make([]M, 0, len(generated)+len(customItems))
+	for _, item := range generated {
+		tags := singboxRuleSetTags(item["tag"])
+		conflict := false
+		for _, tag := range tags {
+			if _, ok := overridden[tag]; ok {
+				conflict = true
+				break
+			}
+		}
+		if !conflict {
+			merged = append(merged, item)
+		}
+	}
+	return append(merged, customItems...)
+}
+
+func singboxRuleSetTags(raw any) []string {
+	switch value := raw.(type) {
+	case string:
+		if value != "" {
+			return []string{value}
+		}
+	case []string:
+		return value
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, item := range value {
+			if tag, ok := item.(string); ok && tag != "" {
+				result = append(result, tag)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 func buildInbound(nc *model.NodeSpec, users []model.UserSpec, tc kernel.TLSCert) M {

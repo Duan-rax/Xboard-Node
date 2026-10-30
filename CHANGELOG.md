@@ -9,8 +9,19 @@ All notable fork changes are recorded here. Release dates use the
   disabled state.
 - Compile `all` panel rules as one multi-condition rule and `any` rules as
   separate matchers for both Sing-box and Xray.
+- Support domain keywords, RE2 domain expressions and sniffed application
+  protocols in structured panel and custom routes.
+- Generate current Sing-box routing actions and native `rule_set` definitions
+  for GeoIP/GeoSite collections while keeping Xray on its native geo data.
 - Preserve legacy `match` rules and apply panel routes in ascending priority
   order.
+
+### Fixed
+
+- Keep Sing-box `all` matcher groups logically ANDed even when multiple domain
+  or rule-set collections are present.
+- Let custom Sing-box rule-set and experimental settings override generated
+  values without dropping the cache needed by remote rule-sets.
 
 ## 2026.10.30.2
 

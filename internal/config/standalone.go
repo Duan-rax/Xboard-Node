@@ -68,11 +68,14 @@ type StandaloneCustomRouteRule struct {
 type StandaloneRouteMatch struct {
 	Domains        []string `yaml:"domains,omitempty"`
 	DomainSuffixes []string `yaml:"domain_suffixes,omitempty"`
+	DomainKeywords []string `yaml:"domain_keywords,omitempty"`
+	DomainRegexes  []string `yaml:"domain_regexes,omitempty"`
 	IPCIDRs        []string `yaml:"ip_cidrs,omitempty"`
 	Ports          []string `yaml:"ports,omitempty"`
 	Networks       []string `yaml:"networks,omitempty"`
 	SourceCIDRs    []string `yaml:"source_cidrs,omitempty"`
 	SourcePorts    []string `yaml:"source_ports,omitempty"`
+	Protocols      []string `yaml:"protocols,omitempty"`
 	GeoIP          []string `yaml:"geoip,omitempty"`
 	GeoSite        []string `yaml:"geosite,omitempty"`
 	RuleSets       []string `yaml:"rule_sets,omitempty"`

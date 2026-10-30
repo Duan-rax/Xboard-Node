@@ -47,6 +47,12 @@ func ValidateCustomRouteRules(rules []CustomRouteRule, kernelType string, availa
 		if err := validateNetworks(rule.Match.Networks, fmt.Sprintf("custom_route_rules[%d].match.networks", i)); err != nil {
 			return err
 		}
+		if err := validateSniffProtocols(rule.Match.Protocols, fmt.Sprintf("custom_route_rules[%d].match.protocols", i)); err != nil {
+			return err
+		}
+		if err := validateDomainPatterns(rule.Match.DomainKeywords, rule.Match.DomainRegexes, fmt.Sprintf("custom_route_rules[%d].match", i)); err != nil {
+			return err
+		}
 		if err := validateRouteSetNames(rule.Match.GeoIP, fmt.Sprintf("custom_route_rules[%d].match.geoip", i), false); err != nil {
 			return err
 		}
@@ -93,11 +99,14 @@ func hasRouteMatch(match RouteMatch) bool {
 	for _, values := range [][]string{
 		match.Domains,
 		match.DomainSuffixes,
+		match.DomainKeywords,
+		match.DomainRegexes,
 		match.IPCIDRs,
 		match.Ports,
 		match.Networks,
 		match.SourceCIDRs,
 		match.SourcePorts,
+		match.Protocols,
 		match.GeoIP,
 		match.GeoSite,
 		match.RuleSets,
@@ -118,11 +127,14 @@ func ensureRouteMatcherSupported(index int, kernelType string, matcherSupport ma
 	checks := map[string][]string{
 		"domains":         match.Domains,
 		"domain_suffixes": match.DomainSuffixes,
+		"domain_keywords": match.DomainKeywords,
+		"domain_regexes":  match.DomainRegexes,
 		"ip_cidrs":        match.IPCIDRs,
 		"ports":           match.Ports,
 		"networks":        match.Networks,
 		"source_cidrs":    match.SourceCIDRs,
 		"source_ports":    match.SourcePorts,
+		"protocols":       match.Protocols,
 		"geoip":           match.GeoIP,
 		"geosite":         match.GeoSite,
 		"rule_sets":       match.RuleSets,
@@ -173,6 +185,45 @@ func validateNetworks(values []string, field string) error {
 		}
 		if value != "tcp" && value != "udp" {
 			return fmt.Errorf("%s contains unsupported network %q", field, value)
+		}
+	}
+	return nil
+}
+
+func validateSniffProtocols(values []string, field string) error {
+	allowed := map[string]struct{}{"http": {}, "tls": {}, "quic": {}, "bittorrent": {}}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := allowed[value]; !ok {
+			return fmt.Errorf("%s contains unsupported protocol %q", field, value)
+		}
+	}
+	return nil
+}
+
+func validateDomainPatterns(keywords, regexes []string, field string) error {
+	for _, value := range keywords {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if len(value) > 255 || strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+			return fmt.Errorf("%s.domain_keywords contains invalid value %q", field, value)
+		}
+	}
+	for _, value := range regexes {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if len(value) > 512 {
+			return fmt.Errorf("%s.domain_regexes contains overlong expression", field)
+		}
+		if _, err := regexp.Compile(value); err != nil {
+			return fmt.Errorf("%s.domain_regexes contains invalid expression %q: %w", field, value, err)
 		}
 	}
 	return nil
