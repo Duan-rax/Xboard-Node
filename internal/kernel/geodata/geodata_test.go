@@ -1,6 +1,7 @@
 package geodata
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -85,3 +86,19 @@ func TestEnsureFileFallsBackAndRefreshes(t *testing.T) {
 		t.Fatalf("fresh cache caused another download: %d calls", fallbackCalls)
 	}
 }
+func TestAtomicDownloadRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(maxDownloadSize+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	dst := filepath.Join(t.TempDir(), "oversized.srs")
+	if err := atomicDownload(dst, server.URL); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("oversized response left destination behind: %v", err)
+	}
+}
+
