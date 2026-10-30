@@ -90,11 +90,11 @@ docker compose up -d
 
 ```bash
 # Node mode
-curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install-fork.sh | \
   sudo bash -s -- --mode node --panel https://panel.example.com --token TOKEN --node-id 1
 
 # Machine mode
-curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Duan-rax/Xboard-Node/dev/install-fork.sh | \
   sudo bash -s -- --mode machine --panel https://panel.example.com --token TOKEN --machine-id 1
 ```
 
