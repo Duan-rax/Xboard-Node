@@ -54,7 +54,7 @@ type fileRootConfig struct {
 	WS        *config.WSConfig   `yaml:"ws,omitempty"`
 	Runtime   *fileRuntimeConfig `yaml:"runtime,omitempty"`
 	Cert      *config.CertConfig `yaml:"cert,omitempty"`
-	Instances []fileInstance      `yaml:"instances,omitempty"`
+	Instances []fileInstance     `yaml:"instances,omitempty"`
 }
 
 type fileInstance struct {
@@ -92,14 +92,14 @@ type fileNodeConfig struct {
 }
 
 type fileKernelConfig struct {
-	Type                    string           `yaml:"type"`
-	ConfigDir               string           `yaml:"config_dir"`
-	LogLevel                string           `yaml:"log_level,omitempty"`
-	XrayAccessLog           string           `yaml:"xray_access_log,omitempty"`
-	GeoDataDir              string           `yaml:"geo_data_dir,omitempty"`
-	CustomConfig            string           `yaml:"custom_config,omitempty"`
-	CustomRoute             []map[string]any `yaml:"custom_route,omitempty"`
-	CustomOut               []map[string]any `yaml:"custom_outbound,omitempty"`
+	Type          string           `yaml:"type"`
+	ConfigDir     string           `yaml:"config_dir"`
+	LogLevel      string           `yaml:"log_level,omitempty"`
+	XrayAccessLog string           `yaml:"xray_access_log,omitempty"`
+	GeoDataDir    string           `yaml:"geo_data_dir,omitempty"`
+	CustomConfig  string           `yaml:"custom_config,omitempty"`
+	CustomRoute   []map[string]any `yaml:"custom_route,omitempty"`
+	CustomOut     []map[string]any `yaml:"custom_outbound,omitempty"`
 }
 
 type fileLogConfig struct {
@@ -852,9 +852,9 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 	}
 	if p.Kernel.Type != "" || p.Kernel.LogLevel != "" {
 		out.Kernel = &fileKernelConfig{
-			Type:                    p.Kernel.Type,
-			LogLevel:                p.Kernel.LogLevel,
-			XrayAccessLog:           p.Kernel.XrayAccessLog,
+			Type:          p.Kernel.Type,
+			LogLevel:      p.Kernel.LogLevel,
+			XrayAccessLog: p.Kernel.XrayAccessLog,
 		}
 	}
 	if p.Node.PushInterval != 0 || p.Node.PullInterval != 0 || p.Node.TrackInterval != 0 || p.Node.DeviceReportInterval != 0 {
@@ -885,14 +885,14 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 				NodeType: inst.Panel.NodeType,
 			},
 			Kernel: fileKernelConfig{
-				Type:                    inst.Kernel.Type,
-				ConfigDir:               inst.Kernel.ConfigDir,
-				LogLevel:                inst.Kernel.LogLevel,
-				XrayAccessLog:           inst.Kernel.XrayAccessLog,
-				GeoDataDir:              inst.Kernel.GeoDataDir,
-				CustomConfig:            inst.Kernel.CustomConfig,
-				CustomRoute:             inst.Kernel.CustomRoute,
-				CustomOut:               inst.Kernel.CustomOutbound,
+				Type:          inst.Kernel.Type,
+				ConfigDir:     inst.Kernel.ConfigDir,
+				LogLevel:      inst.Kernel.LogLevel,
+				XrayAccessLog: inst.Kernel.XrayAccessLog,
+				GeoDataDir:    inst.Kernel.GeoDataDir,
+				CustomConfig:  inst.Kernel.CustomConfig,
+				CustomRoute:   inst.Kernel.CustomRoute,
+				CustomOut:     inst.Kernel.CustomOutbound,
 			},
 			Log: fileLogConfig{
 				Level:  inst.Log.Level,
@@ -1334,9 +1334,9 @@ func runConfigInit(args []string) error {
 	inst := config.Config{
 		Panel: config.PanelConfig{URL: panelURL},
 		Kernel: config.KernelConfig{
-			Type:                    kernelType,
-			LogLevel:                "warn",
-			XrayAccessLog:           xrayAccessLog,
+			Type:          kernelType,
+			LogLevel:      "warn",
+			XrayAccessLog: xrayAccessLog,
 		},
 		Log:        config.LogConfig{Level: "info", Output: "stdout"},
 		HealthPort: healthPort,

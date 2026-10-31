@@ -20,9 +20,9 @@ import (
 
 // nodeHandle tracks a running node service.
 type nodeHandle struct {
-	cancel      context.CancelFunc
-	done        chan struct{}
-	mailbox     *controlplane.NodeMailbox
+	cancel  context.CancelFunc
+	done    chan struct{}
+	mailbox *controlplane.NodeMailbox
 }
 
 // Orchestrator manages all nodes bound to a panel machine. It:
