@@ -16,17 +16,17 @@ import (
 const persistentStateVersion = 1
 
 type persistentLastKnownGood struct {
-	Version int                `json:"version"`
-	Config  *model.NodeSpec    `json:"config"`
-	Users   []model.UserSpec   `json:"users"`
+	Version int              `json:"version"`
+	Config  *model.NodeSpec  `json:"config"`
+	Users   []model.UserSpec `json:"users"`
 }
 
 type persistentLastKnownGoodMeta struct {
-	Version       int    `json:"version"`
-	SavedAt       int64  `json:"saved_at"`
-	ConfigRevision int64 `json:"config_revision"`
-	ConfigHash    string `json:"config_hash"`
-	UserHash      string `json:"user_hash"`
+	Version        int    `json:"version"`
+	SavedAt        int64  `json:"saved_at"`
+	ConfigRevision int64  `json:"config_revision"`
+	ConfigHash     string `json:"config_hash"`
+	UserHash       string `json:"user_hash"`
 }
 
 func (s *Service) persistLastKnownGood(config *model.NodeSpec, users []model.UserSpec) {

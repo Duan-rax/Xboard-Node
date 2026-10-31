@@ -93,3 +93,29 @@ func TestTranslateWSEventRejectsUnsupportedProtocolForKernel(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestTranslateWSEventCarriesEgressProbe(t *testing.T) {
+	event, err := TranslateWSEvent(panelapi.WSEvent{
+		Type: panelapi.WSEventProbeEgress,
+		EgressProbe: &panelapi.EgressProbePayload{
+			RequestID: "request-1",
+			Target:    "https://api.ipify.org?format=json",
+			NodeID:    12,
+			Proxy: panelapi.EgressProxyConfig{
+				ID:       9,
+				Protocol: "socks5",
+				Host:     "203.0.113.10",
+				Port:     1080,
+			},
+		},
+	}, config.KernelConfig{Type: "singbox"})
+	if err != nil {
+		t.Fatalf("translate probe event: %v", err)
+	}
+	if event.Type != EventProbeEgress || event.EgressProbe == nil {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if event.EgressProbe.Proxy.ID != 9 || event.EgressProbe.RequestID != "request-1" {
+		t.Fatalf("unexpected probe request: %#v", event.EgressProbe)
+	}
+}

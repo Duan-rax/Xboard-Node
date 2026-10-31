@@ -71,17 +71,17 @@ type EgressProbeRequest struct {
 }
 
 type EgressProbeResult struct {
-	RequestID     string `json:"request_id"`
-	ProxyID       int    `json:"proxy_id"`
-	NodeID        int    `json:"node_id,omitempty"`
-	OK            bool   `json:"ok"`
-	LatencyMS     int64  `json:"latency_ms"`
-	Message       string `json:"message"`
-	ExitIP        string `json:"exit_ip,omitempty"`
-	NodePublicIP  string `json:"node_public_ip,omitempty"`
-	Target        string `json:"target"`
-	TLSVerified   bool   `json:"tls_verified"`
-	CompletedAt   int64  `json:"completed_at"`
+	RequestID    string `json:"request_id"`
+	ProxyID      int    `json:"proxy_id"`
+	NodeID       int    `json:"node_id,omitempty"`
+	OK           bool   `json:"ok"`
+	LatencyMS    int64  `json:"latency_ms"`
+	Message      string `json:"message"`
+	ExitIP       string `json:"exit_ip,omitempty"`
+	NodePublicIP string `json:"node_public_ip,omitempty"`
+	Target       string `json:"target"`
+	TLSVerified  bool   `json:"tls_verified"`
+	CompletedAt  int64  `json:"completed_at"`
 }
 
 type OutboundConfig struct {

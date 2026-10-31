@@ -326,4 +326,3 @@ func compactError(err error) string {
 	}
 	return message
 }
-

@@ -5,6 +5,16 @@ All notable fork changes are recorded here. Release dates use the
 
 ## Unreleased
 
+- Add the `probe.egress` control-plane command and `report.egress_probe`
+  response. The node runs an isolated sing-box probe for the requested profile
+  and returns latency, target, TLS completion and exit IP.
+- Persist the last successfully applied config and users to
+  `last-known-good.json` plus metadata with mode `0600`. The node can restore
+  that state after process restart or when initial panel synchronization fails.
+- Add Xray `domain_strategy` (`AsIs`, `IPIfNonMatch`, `IPOnDemand`) and report
+  the effective value in node capabilities.
+- Render VLESS/Trojan WS, gRPC, HTTP and HTTPUpgrade transports for both
+  kernels; validate transport and Reality/flow compatibility before reload.
 - Run fork tests and release builds only by explicit manual workflow dispatch;
   pushing code no longer triggers GitHub CLI, Docker or Release builds.
 - Remove the experimental traffic-audit collector, plugin, machine bootstrap,

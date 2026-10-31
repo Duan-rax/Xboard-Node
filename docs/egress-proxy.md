@@ -15,10 +15,15 @@
 | sing-box | 增加 `panel-egress-<id>` 出站，设置 `route.final` |
 | Xray | 增加 `panel-egress-<id>` 出站，在既有规则后追加 TCP/UDP 路由 |
 
-面板的拦截、审计、私网保护和受信任自定义路由仍具有更高优先级。一个节点
+面板的拦截、私网保护和受信任自定义路由仍具有更高优先级。一个节点
 只能有一个管理出站；重新绑定会原子地替换上一个出站。
 
 支持 SOCKS5、HTTP/HTTPS、Shadowsocks、VLESS（含 TLS/Reality）和 Trojan。
 协议参数由面板的 `config` 对象传入，节点会在重载前验证主机、端口、必要的
 SS method、VLESS UUID、Trojan 密码及生成标签冲突。
+
+节点支持一次性的 `probe.egress` 指令。探测使用独立 sing-box 实例验证真实
+节点出口，不修改正在运行的节点配置，也不记录用户流量。成功应用的配置和用户
+会持久化到实例目录的 `last-known-good.json`；进程重启或首次面板同步失败时
+可恢复最近一次可用状态。
 

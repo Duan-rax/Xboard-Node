@@ -142,6 +142,7 @@ func TestBuildMetricsReportsCapabilityManifest(t *testing.T) {
 		"config_hash":          true,
 		"config_atomic_apply":  true,
 		"last_known_good":      true,
+		"node_egress_probe":    true,
 		"structured_routes":    true,
 		"domain_exact":         true,
 	}
@@ -151,7 +152,7 @@ func TestBuildMetricsReportsCapabilityManifest(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing features %v in %v", want, features)
 	}
-	if len(features) != 6 {
+	if len(features) != 7 {
 		t.Fatalf("features should be deduplicated, got %v", features)
 	}
 }

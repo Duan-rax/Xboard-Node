@@ -92,15 +92,15 @@ type fileNodeConfig struct {
 }
 
 type fileKernelConfig struct {
-	Type          string           `yaml:"type"`
-	ConfigDir     string           `yaml:"config_dir"`
-	LogLevel      string           `yaml:"log_level,omitempty"`
-	XrayAccessLog string           `yaml:"xray_access_log,omitempty"`
+	Type           string           `yaml:"type"`
+	ConfigDir      string           `yaml:"config_dir"`
+	LogLevel       string           `yaml:"log_level,omitempty"`
+	XrayAccessLog  string           `yaml:"xray_access_log,omitempty"`
 	DomainStrategy string          `yaml:"domain_strategy,omitempty"`
-	GeoDataDir    string           `yaml:"geo_data_dir,omitempty"`
-	CustomConfig  string           `yaml:"custom_config,omitempty"`
-	CustomRoute   []map[string]any `yaml:"custom_route,omitempty"`
-	CustomOut     []map[string]any `yaml:"custom_outbound,omitempty"`
+	GeoDataDir     string           `yaml:"geo_data_dir,omitempty"`
+	CustomConfig   string           `yaml:"custom_config,omitempty"`
+	CustomRoute    []map[string]any `yaml:"custom_route,omitempty"`
+	CustomOut      []map[string]any `yaml:"custom_outbound,omitempty"`
 }
 
 type fileLogConfig struct {
@@ -853,9 +853,9 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 	}
 	if p.Kernel.Type != "" || p.Kernel.LogLevel != "" {
 		out.Kernel = &fileKernelConfig{
-			Type:          p.Kernel.Type,
-			LogLevel:      p.Kernel.LogLevel,
-			XrayAccessLog: p.Kernel.XrayAccessLog,
+			Type:           p.Kernel.Type,
+			LogLevel:       p.Kernel.LogLevel,
+			XrayAccessLog:  p.Kernel.XrayAccessLog,
 			DomainStrategy: p.Kernel.DomainStrategy,
 		}
 	}
@@ -887,15 +887,15 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 				NodeType: inst.Panel.NodeType,
 			},
 			Kernel: fileKernelConfig{
-				Type:          inst.Kernel.Type,
-				ConfigDir:     inst.Kernel.ConfigDir,
-				LogLevel:      inst.Kernel.LogLevel,
-				XrayAccessLog: inst.Kernel.XrayAccessLog,
+				Type:           inst.Kernel.Type,
+				ConfigDir:      inst.Kernel.ConfigDir,
+				LogLevel:       inst.Kernel.LogLevel,
+				XrayAccessLog:  inst.Kernel.XrayAccessLog,
 				DomainStrategy: inst.Kernel.DomainStrategy,
-				GeoDataDir:    inst.Kernel.GeoDataDir,
-				CustomConfig:  inst.Kernel.CustomConfig,
-				CustomRoute:   inst.Kernel.CustomRoute,
-				CustomOut:     inst.Kernel.CustomOutbound,
+				GeoDataDir:     inst.Kernel.GeoDataDir,
+				CustomConfig:   inst.Kernel.CustomConfig,
+				CustomRoute:    inst.Kernel.CustomRoute,
+				CustomOut:      inst.Kernel.CustomOutbound,
 			},
 			Log: fileLogConfig{
 				Level:  inst.Log.Level,
@@ -1341,9 +1341,9 @@ func runConfigInit(args []string) error {
 	inst := config.Config{
 		Panel: config.PanelConfig{URL: panelURL},
 		Kernel: config.KernelConfig{
-			Type:          kernelType,
-			LogLevel:      "warn",
-			XrayAccessLog: xrayAccessLog,
+			Type:           kernelType,
+			LogLevel:       "warn",
+			XrayAccessLog:  xrayAccessLog,
 			DomainStrategy: domainStrategy,
 		},
 		Log:        config.LogConfig{Level: "info", Output: "stdout"},
