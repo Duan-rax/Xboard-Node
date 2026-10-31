@@ -137,6 +137,40 @@ func TestIdentityLogCreatesLinkedConnectionWithoutClashSample(t *testing.T) {
 	}
 }
 
+func TestSingBoxUDPAuditSummaryCreatesRealDestinationEvent(t *testing.T) {
+	event := singBoxUDPAuditEvent(Target{NodeID: "21"}, []string{
+		"audit udp destination user_id=7 connection_id=clash-udp-7 source=203.0.113.8:52144 destination=speed.cloudflare.com:443 upload=123 download=456",
+		"7", "clash-udp-7", "203.0.113.8:52144", "speed.cloudflare.com:443", "123", "456",
+	})
+	if event.UserID == nil || *event.UserID != 7 {
+		t.Fatalf("user = %v", event.UserID)
+	}
+	if event.Destination != "speed.cloudflare.com:443" || event.Network != "udp" {
+		t.Fatalf("destination = %q network = %q", event.Destination, event.Network)
+	}
+	if event.UploadBytes != 123 || event.DownloadBytes != 456 || event.EventType != "close" {
+		t.Fatalf("event = %#v", event)
+	}
+	if event.ConnectionID != "singbox-"+eventHash("21", "clash-udp-7") {
+		t.Fatalf("connection ID = %q", event.ConnectionID)
+	}
+}
+
+func TestUoTControlDestinationIsNotPublishedAsTraffic(t *testing.T) {
+	for _, destination := range []string{
+		"sp.v2.udp-over-tcp.arpa:443",
+		"tcp:sp.udp-over-tcp.arpa:443",
+		"udp:sp.v2.udp-over-tcp.arpa:443",
+	} {
+		if !isUoTControlDestination(destination) {
+			t.Fatalf("expected %q to be recognised as UoT control target", destination)
+		}
+	}
+	if isUoTControlDestination("speed.cloudflare.com:443") {
+		t.Fatal("real destination must not be treated as UoT control target")
+	}
+}
+
 func TestPanelRouteIdentity(t *testing.T) {
 	id, tag := panelRouteIdentity("panel-route-38")
 	if id == nil || *id != 38 || tag != "panel-route-38" {

@@ -249,3 +249,27 @@ func TestConnTrackerRateLimitHonorsContextCancellation(t *testing.T) {
 		t.Fatalf("second Write() = (%d, %v), want (0, context canceled)", n, err)
 	}
 }
+
+func TestTrackedPacketConnTracksRealUDPDestinationBytes(t *testing.T) {
+	conn := &trackedPacketConn{
+		userID:     7,
+		connID:     "clash-packets-7",
+		source:     "203.0.113.8:52144",
+		auditDests: make(map[string]udpAuditCounter),
+		auditLimit: 2,
+	}
+	conn.trackUDPAudit("speed.cloudflare.com:443", 100, 200)
+	conn.trackUDPAudit("speed.cloudflare.com:443", 10, 20)
+	conn.trackUDPAudit("1.1.1.1:443", 30, 40)
+	conn.trackUDPAudit("overflow.example:443", 5, 6)
+
+	if got := conn.auditDests["speed.cloudflare.com:443"]; got != (udpAuditCounter{upload: 110, download: 220}) {
+		t.Fatalf("cloudflare counter = %#v", got)
+	}
+	if got := conn.auditDests["1.1.1.1:443"]; got != (udpAuditCounter{upload: 30, download: 40}) {
+		t.Fatalf("IP counter = %#v", got)
+	}
+	if conn.auditOther != (udpAuditCounter{upload: 5, download: 6}) {
+		t.Fatalf("overflow counter = %#v", conn.auditOther)
+	}
+}

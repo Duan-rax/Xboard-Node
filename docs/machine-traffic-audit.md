@@ -111,6 +111,20 @@ The identity line also creates a zero-byte connection-start event immediately.
 This preserves short-lived connections that finish between Clash API polling
 intervals; later sampled bytes reuse the same panel connection ID.
 
+## UDP destination decoding
+
+For UDP packet connections, Xboard-Node reads the real inner destination from
+the packet-connection wrapper. On close it emits one summary per destination:
+
+```text
+audit udp destination user_id=7 connection_id=<uuid> source=... destination=... upload=... download=...
+```
+
+This decodes the real target carried inside UDP over TCP instead of publishing
+the internal `sp.v2.udp-over-tcp.arpa` control address as a destination.
+The collector ignores Clash API byte events whose destination is a UoT control
+address, so traffic is not counted twice.
+
 ## Xray
 
 Xray 不使用 Clash API。Machine 自动清单只包含 sing-box Node；Xray 网站连接审计仍通过 `xray_access_log` 的静态 collector target 完成。

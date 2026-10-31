@@ -6,6 +6,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -328,9 +329,12 @@ func (t *ConnTracker) RoutedPacketConnection(
 		us:         us,
 		userID:     uid,
 		connID:     connID,
+		source:     metadata.Source.String(),
 		sourceIP:   sourceIP,
 		limiter:    lim,
 		ctx:        ctx,
+		auditDests: make(map[string]udpAuditCounter),
+		auditLimit: 128,
 	}
 }
 
@@ -735,14 +739,19 @@ func (c *trackedConn) WriterReplaceable() bool { return true }
 
 type trackedPacketConn struct {
 	N.PacketConn
-	tracker  *ConnTracker
-	us       *userStats
-	userID   int
-	connID   string
-	sourceIP string
-	limiter  *rate.Limiter
-	ctx      context.Context
-	closed   atomic.Bool
+	tracker     *ConnTracker
+	us          *userStats
+	userID      int
+	connID      string
+	source      string
+	sourceIP    string
+	limiter     *rate.Limiter
+	ctx         context.Context
+	closed      atomic.Bool
+	auditMu     sync.Mutex
+	auditDests  map[string]udpAuditCounter
+	auditOther  udpAuditCounter
+	auditLimit  int
 }
 
 func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (singM.Socksaddr, error) {
@@ -752,6 +761,7 @@ func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (singM.Socksaddr, err
 		if c.us != nil {
 			c.us.upload.Add(n) // 从入站读取 = 用户上传
 		}
+		c.trackUDPAudit(dest.String(), n, 0)
 		if c.limiter != nil {
 			// Non-blocking rate limiting with context cancellation
 			if !c.limiter.AllowN(time.Now(), int(n)) {
@@ -798,17 +808,84 @@ func (c *trackedPacketConn) WritePacket(buffer *buf.Buffer, dest singM.Socksaddr
 	if err == nil && c.us != nil {
 		c.us.download.Add(n) // 向入站写入 = 用户下载
 	}
+	if err == nil {
+		c.trackUDPAudit(dest.String(), 0, n)
+	}
 	return err
 }
 
 func (c *trackedPacketConn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
+		c.flushUDPAudit()
 		if c.us != nil {
 			c.us.removeConn(c.sourceIP)
 		}
 		c.tracker.removeConnRef(c.connID)
 	}
 	return c.PacketConn.Close()
+}
+
+type udpAuditCounter struct {
+	upload   int64
+	download int64
+}
+
+func (c *trackedPacketConn) trackUDPAudit(destination string, upload, download int64) {
+	if c.userID <= 0 || c.connID == "" || (upload == 0 && download == 0) {
+		return
+	}
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		destination = "udp-unknown.invalid"
+	}
+	c.auditMu.Lock()
+	defer c.auditMu.Unlock()
+	if c.auditDests == nil {
+		c.auditDests = make(map[string]udpAuditCounter)
+	}
+	if c.auditLimit == 0 {
+		c.auditLimit = 128
+	}
+	counter, found := c.auditDests[destination]
+	if !found && len(c.auditDests) >= c.auditLimit {
+		c.auditOther.upload += upload
+		c.auditOther.download += download
+		return
+	}
+	counter.upload += upload
+	counter.download += download
+	c.auditDests[destination] = counter
+}
+
+func (c *trackedPacketConn) flushUDPAudit() {
+	c.auditMu.Lock()
+	destinations := make(map[string]udpAuditCounter, len(c.auditDests)+1)
+	for destination, counter := range c.auditDests {
+		destinations[destination] = counter
+	}
+	other := c.auditOther
+	c.auditDests = make(map[string]udpAuditCounter)
+	c.auditOther = udpAuditCounter{}
+	c.auditMu.Unlock()
+	if other.upload > 0 || other.download > 0 {
+		destinations["udp-other.invalid"] = other
+	}
+	keys := make([]string, 0, len(destinations))
+	for destination := range destinations {
+		keys = append(keys, destination)
+	}
+	sort.Strings(keys)
+	for _, destination := range keys {
+		counter := destinations[destination]
+		nlog.Core().Info("audit udp destination",
+			"user_id", c.userID,
+			"connection_id", c.connID,
+			"source", c.source,
+			"destination", destination,
+			"upload", counter.upload,
+			"download", counter.download,
+		)
+	}
 }
 
 func (c *trackedPacketConn) makeCountFunc(counter *atomic.Int64) N.CountFunc {

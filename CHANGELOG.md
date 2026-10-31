@@ -5,6 +5,9 @@ All notable fork changes are recorded here. Release dates use the
 
 ## Unreleased
 
+- Decode real UDP packet destinations and emit per-destination byte summaries
+  at connection close. Internal `sp.v2.udp-over-tcp.arpa` control targets are
+  no longer published as user traffic or double-counted.
 - Run fork tests and release builds only by explicit manual workflow dispatch;
   pushing code no longer triggers GitHub CLI, Docker or Release builds.
 - Add Clash API connection UUIDs to sing-box audit identity logs so concurrent

@@ -141,6 +141,7 @@ var (
 	singBoxSource          = regexp.MustCompile(`inbound connection from ([^\s]+)`)
 	singBoxUserDestination = regexp.MustCompile(`\]: \[([^\]]+)\] inbound(?: packet)? connection to ([^\s]+)`)
 	singBoxAuditIdentity   = regexp.MustCompile(`audit connection user_id=([0-9]+)(?: connection_id=([^\s]+))? source=([^\s]+) destination=([^\s]+) domain=([^\s]*)`)
+	singBoxUDPAudit        = regexp.MustCompile(`audit udp destination user_id=([0-9]+) connection_id=([^\s]+) source=([^\s]+) destination=([^\s]+) upload=([0-9]+) download=([0-9]+)`)
 )
 
 func main() {
@@ -353,6 +354,9 @@ func (c *Collector) collectSingBox(target Target) error {
 			}
 		}
 		event := c.eventFromClash(target, conn, eventType, upDelta, downDelta)
+		if isUoTControlDestination(event.Destination) {
+			continue
+		}
 		if err := c.queueSingBoxEvent(target, event); err != nil {
 			return err
 		}
@@ -511,6 +515,14 @@ func (c *Collector) tailSingBoxJournal(unit string) {
 }
 
 func (c *Collector) handleSingBoxLogLine(unit, line string) {
+	if udpMatch := singBoxUDPAudit.FindStringSubmatch(line); len(udpMatch) == 7 {
+		for _, target := range c.targetsForJournalUnit(unit) {
+			if err := c.post(singBoxUDPAuditEvent(target, udpMatch)); err != nil {
+				log.Printf("sing-box %s UDP destination event: %v", target.NodeID, err)
+			}
+		}
+		return
+	}
 	if identityMatch := singBoxAuditIdentity.FindStringSubmatch(line); len(identityMatch) == 6 {
 		user := "@" + identityMatch[1]
 		connectionID := identityMatch[2]
@@ -593,6 +605,45 @@ func (c *Collector) handleSingBoxLogLine(unit, line string) {
 			delete(c.singBoxContexts, key)
 		}
 	}
+}
+
+func singBoxUDPAuditEvent(target Target, match []string) Event {
+	upload, _ := strconv.ParseUint(match[5], 10, 64)
+	download, _ := strconv.ParseUint(match[6], 10, 64)
+	user := "@" + match[1]
+	connectionID := match[2]
+	metadata := map[string]any{
+		"kernel":              "sing-box",
+		"user":                user,
+		"user_match":          "connection_id",
+		"clash_connection_id": connectionID,
+		"transport":           "udp",
+	}
+	return Event{
+		EventID:       eventHash(target.NodeID, connectionID, match[4], "udp-summary"),
+		ConnectionID:  "singbox-" + eventHash(target.NodeID, connectionID),
+		EventType:     "close",
+		UserID:        parseUserID(user),
+		NodeID:        target.NodeID,
+		ClientSource:  match[3],
+		OccurredAt:    time.Now().UTC(),
+		Action:        "observe",
+		Destination:   match[4],
+		Network:       "udp",
+		UploadBytes:   upload,
+		DownloadBytes: download,
+		Metadata:      metadata,
+	}
+}
+
+func isUoTControlDestination(destination string) bool {
+	destination = strings.ToLower(strings.TrimSpace(destination))
+	destination = strings.TrimPrefix(destination, "tcp:")
+	destination = strings.TrimPrefix(destination, "udp:")
+	if host, _, err := net.SplitHostPort(destination); err == nil {
+		destination = host
+	}
+	return destination == "sp.v2.udp-over-tcp.arpa" || destination == "sp.udp-over-tcp.arpa"
 }
 
 func (c *Collector) targetsForJournalUnit(unit string) []Target {
