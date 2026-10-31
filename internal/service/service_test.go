@@ -38,9 +38,9 @@ type fakeKernel struct {
 	startFailures   int
 }
 
-func (f *fakeKernel) Name() string                      { return "fake" }
-func (f *fakeKernel) Version() string                   { return f.version }
-func (f *fakeKernel) Protocols() []string               { return []string{"vless"} }
+func (f *fakeKernel) Name() string        { return "fake" }
+func (f *fakeKernel) Version() string     { return f.version }
+func (f *fakeKernel) Protocols() []string { return []string{"vless"} }
 func (f *fakeKernel) Capabilities() kernel.Capabilities {
 	return kernel.Capabilities{RouteFeatures: []string{"structured_routes", "domain_exact", "domain_exact"}}
 }
@@ -138,14 +138,14 @@ func TestBuildMetricsReportsCapabilityManifest(t *testing.T) {
 		t.Fatalf("features type = %T, want []string", metrics["features"])
 	}
 	want := map[string]bool{
-		"config_revision":      true,
-		"config_hash":          true,
-		"config_atomic_apply":  true,
-		"last_known_good":      true,
-		"node_egress_probe":    true,
-		"multi_egress":         true,
-		"structured_routes":    true,
-		"domain_exact":         true,
+		"config_revision":     true,
+		"config_hash":         true,
+		"config_atomic_apply": true,
+		"last_known_good":     true,
+		"node_egress_probe":   true,
+		"multi_egress":        true,
+		"structured_routes":   true,
+		"domain_exact":        true,
 	}
 	for _, feature := range features {
 		delete(want, feature)
