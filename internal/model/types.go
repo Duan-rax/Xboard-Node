@@ -17,7 +17,9 @@ type NodeSpec struct {
 	CustomOutbounds  []OutboundConfig
 	CustomRoutes     []map[string]any
 	CustomRouteRules []CustomRouteRule
-	EgressProxy      *EgressProxyConfig
+	EgressProxy        *EgressProxyConfig
+	EgressProxies      []EgressProxyConfig
+	FinalEgressProxyID int
 	CertConfig       *config.CertConfig
 	AutoTLS          bool
 	Domain           string
@@ -62,6 +64,45 @@ type EgressProxyConfig struct {
 	TLSServerName string
 	AllowInsecure bool
 	Config        map[string]any
+}
+
+func (n *NodeSpec) AvailableEgressProxies() []EgressProxyConfig {
+	if n == nil {
+		return nil
+	}
+	proxies := make([]EgressProxyConfig, 0, len(n.EgressProxies)+1)
+	seen := make(map[int]bool)
+	for _, proxy := range n.EgressProxies {
+		if proxy.ID <= 0 || seen[proxy.ID] {
+			continue
+		}
+		seen[proxy.ID] = true
+		proxies = append(proxies, proxy)
+	}
+	if n.EgressProxy != nil && n.EgressProxy.ID > 0 && !seen[n.EgressProxy.ID] {
+		proxies = append(proxies, *n.EgressProxy)
+	}
+	return proxies
+}
+
+func (n *NodeSpec) FinalEgressProxy() *EgressProxyConfig {
+	if n == nil {
+		return nil
+	}
+	finalID := n.FinalEgressProxyID
+	if finalID <= 0 && n.EgressProxy != nil {
+		finalID = n.EgressProxy.ID
+	}
+	if finalID <= 0 {
+		return nil
+	}
+	for _, proxy := range n.AvailableEgressProxies() {
+		if proxy.ID == finalID {
+			copy := proxy
+			return &copy
+		}
+	}
+	return nil
 }
 
 type EgressProbeRequest struct {

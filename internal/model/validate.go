@@ -30,16 +30,21 @@ func ValidateNodeSpec(n *NodeSpec, kcfg config.KernelConfig) error {
 		return fmt.Errorf("validate outbound tags: %w", err)
 	}
 	additionalTags := additionalTagNames(additionalOutboundSources)
-	if err := validateEgressProxy(n.EgressProxy, kernelType, additionalTags); err != nil {
-		return err
-	}
-	if n.EgressProxy != nil {
+	availableEgress := n.AvailableEgressProxies()
+	for i := range availableEgress {
+		proxy := &availableEgress[i]
+		if err := validateEgressProxy(proxy, kernelType, additionalTags); err != nil {
+			return err
+		}
 		for _, outbound := range n.CustomOutbounds {
-			if strings.EqualFold(strings.TrimSpace(outbound.Tag), EgressProxyTag(n.EgressProxy.ID)) {
-				return fmt.Errorf("validate egress proxy: generated tag %q conflicts with custom_outbounds", EgressProxyTag(n.EgressProxy.ID))
+			if strings.EqualFold(strings.TrimSpace(outbound.Tag), EgressProxyTag(proxy.ID)) {
+				return fmt.Errorf("validate egress proxy: generated tag %q conflicts with custom_outbounds", EgressProxyTag(proxy.ID))
 			}
 		}
-		additionalTags = append(additionalTags, EgressProxyTag(n.EgressProxy.ID))
+		additionalTags = append(additionalTags, EgressProxyTag(proxy.ID))
+	}
+	if n.FinalEgressProxyID > 0 && n.FinalEgressProxy() == nil {
+		return fmt.Errorf("validate egress proxy: final_egress_proxy_id %d is not available", n.FinalEgressProxyID)
 	}
 	availableTags := buildAvailableOutboundTags(n.CustomOutbounds, additionalTags)
 	if err := ValidateCustomOutboundsForKernel(n.CustomOutbounds, kernelType, additionalTags); err != nil {

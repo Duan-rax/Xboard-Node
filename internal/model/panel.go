@@ -55,6 +55,16 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 			Config: cloneAnyMap(nc.EgressProxy.Config),
 		}
 	}
+	egressProxies := make([]EgressProxyConfig, 0, len(nc.EgressProxies))
+	for _, proxy := range nc.EgressProxies {
+		egressProxies = append(egressProxies, EgressProxyConfig{
+			ID: proxy.ID, Name: proxy.Name, Protocol: proxy.Protocol,
+			Host: proxy.Host, Port: proxy.Port, Username: proxy.Username,
+			Password: proxy.Password, TLSEnabled: proxy.TLSEnabled,
+			TLSServerName: proxy.TLSServerName, AllowInsecure: proxy.AllowInsecure,
+			Config: cloneAnyMap(proxy.Config),
+		})
+	}
 
 	routes := make([]RouteRule, 0, len(nc.Routes))
 	for _, route := range nc.Routes {
@@ -140,6 +150,8 @@ func NodeSpecFromPanel(nc *panel.NodeConfig) *NodeSpec {
 		CustomRoutes:        cloneMapSlice(nc.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
 		EgressProxy:         egressProxy,
+		EgressProxies:       egressProxies,
+		FinalEgressProxyID:  nc.FinalEgressProxyID,
 		CertConfig:          certCfg,
 		AutoTLS:             nc.AutoTLS,
 		Domain:              nc.Domain,
@@ -236,6 +248,16 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 			Config: cloneAnyMap(n.EgressProxy.Config),
 		}
 	}
+	egressProxies := make([]panel.EgressProxyConfig, 0, len(n.EgressProxies))
+	for _, proxy := range n.EgressProxies {
+		egressProxies = append(egressProxies, panel.EgressProxyConfig{
+			ID: proxy.ID, Name: proxy.Name, Protocol: proxy.Protocol,
+			Host: proxy.Host, Port: proxy.Port, Username: proxy.Username,
+			Password: proxy.Password, TLSEnabled: proxy.TLSEnabled,
+			TLSServerName: proxy.TLSServerName, AllowInsecure: proxy.AllowInsecure,
+			Config: cloneAnyMap(proxy.Config),
+		})
+	}
 
 	routes := make([]panel.RouteRule, 0, len(n.Routes))
 	for _, route := range n.Routes {
@@ -321,6 +343,8 @@ func (n *NodeSpec) ToPanel() *panel.NodeConfig {
 		CustomRoutes:        cloneMapSlice(n.CustomRoutes),
 		CustomRouteRules:    customRouteRules,
 		EgressProxy:         egressProxy,
+		EgressProxies:       egressProxies,
+		FinalEgressProxyID:  n.FinalEgressProxyID,
 		CertConfig:          certCfg,
 		AutoTLS:             n.AutoTLS,
 		Domain:              n.Domain,

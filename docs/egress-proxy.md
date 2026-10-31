@@ -16,7 +16,8 @@
 | Xray | 增加 `panel-egress-<id>` 出站，在既有规则后追加 TCP/UDP 路由 |
 
 面板的拦截、私网保护和受信任自定义路由仍具有更高优先级。一个节点
-只能有一个管理出站；重新绑定会原子地替换上一个出站。
+可以同时授权多个管理出站；其中最多一个作为未命中路由后的 final。路由规则
+可以按 `panel-egress-<id>` 选择任意已授权出站。
 
 支持 SOCKS5、HTTP/HTTPS、Shadowsocks、VLESS（含 TLS/Reality）和 Trojan。
 协议参数由面板的 `config` 对象传入，节点会在重载前验证主机、端口、必要的

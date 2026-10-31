@@ -26,8 +26,9 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		outbounds = append(outbounds, outboundConfigToSingbox(co))
 		tags[strings.ToLower(co.Tag)] = true
 	}
-	if nc.EgressProxy != nil {
-		egress := egressProxyToSingbox(nc.EgressProxy)
+	egressProxies := nc.AvailableEgressProxies()
+	for i := range egressProxies {
+		egress := egressProxyToSingbox(&egressProxies[i])
 		outbounds = append(outbounds, egress)
 		tags[strings.ToLower(egress["tag"].(string))] = true
 	}
@@ -89,7 +90,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	mergeCustomSingbox(cfg, kcfg)
-	applyEgressProxyRoute(cfg, nc.EgressProxy)
+	applyEgressProxyRoute(cfg, nc.FinalEgressProxy())
 	return cfg
 }
 

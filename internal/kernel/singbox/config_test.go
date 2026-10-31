@@ -605,6 +605,34 @@ func TestBuildConfig_EgressProxyAddsCatchAllRule(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_MultipleEgressOutboundsAndExplicitFinal(t *testing.T) {
+	node := &panel.NodeConfig{
+		Protocol:   "shadowsocks",
+		ServerPort: 443,
+		Cipher:     "aes-128-gcm",
+		EgressProxies: []panel.EgressProxyConfig{
+			{ID: 1, Protocol: "socks5", Host: "203.0.113.1", Port: 1080},
+			{ID: 2, Protocol: "http", Host: "203.0.113.2", Port: 8080},
+		},
+		FinalEgressProxyID: 2,
+	}
+	cfg := buildConfig(config.KernelConfig{LogLevel: "warn"}, testNodeSpec(node), testUsers, kernel.TLSCert{})
+	outbounds := cfg["outbounds"].([]M)
+	found := map[string]bool{}
+	for _, outbound := range outbounds {
+		if tag, ok := outbound["tag"].(string); ok {
+			found[tag] = true
+		}
+	}
+	if !found["panel-egress-1"] || !found["panel-egress-2"] {
+		t.Fatalf("managed egress outbounds missing: %#v", found)
+	}
+	rules := cfg["route"].(M)["rules"].([]M)
+	if got := rules[len(rules)-1]["outbound"]; got != "panel-egress-2" {
+		t.Fatalf("final catch-all = %v, want panel-egress-2", got)
+	}
+}
+
 func TestEgressProxyToSingbox_ProtocolSpecificCredentialsAndReality(t *testing.T) {
 	ss := egressProxyToSingbox(&model.EgressProxyConfig{
 		ID: 1, Protocol: "shadowsocks", Host: "proxy.test", Port: 8388,

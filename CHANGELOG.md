@@ -5,6 +5,12 @@ All notable fork changes are recorded here. Release dates use the
 
 ## Unreleased
 
+- Support multiple granted managed egress outbounds per node. The legacy
+  `egress_proxy` remains the default/final profile; `egress_proxies` supplies
+  all route-selectable outbounds and `final_egress_proxy_id` selects the only
+  catch-all profile.
+- Hot-reload all added or changed managed outbounds before updating routes and
+  remove stale profiles only after the new routing table is active.
 - Add the `probe.egress` control-plane command and `report.egress_probe`
   response. The node runs an isolated sing-box probe for the requested profile
   and returns latency, target, TLS completion and exit IP.

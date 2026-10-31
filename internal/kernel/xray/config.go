@@ -25,8 +25,9 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 		outbounds = append(outbounds, outboundConfigToXray(co))
 		tags[strings.ToLower(co.Tag)] = true
 	}
-	if nc.EgressProxy != nil {
-		egress := egressProxyToXray(nc.EgressProxy)
+	egressProxies := nc.AvailableEgressProxies()
+	for i := range egressProxies {
+		egress := egressProxyToXray(&egressProxies[i])
 		outbounds = append(outbounds, egress)
 		tags[strings.ToLower(egress["tag"].(string))] = true
 	}
@@ -105,7 +106,7 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	cfg["routing"] = routing
 
 	mergeCustomXray(cfg, kcfg)
-	applyEgressProxyRoute(cfg, nc.EgressProxy)
+	applyEgressProxyRoute(cfg, nc.FinalEgressProxy())
 	return cfg
 }
 

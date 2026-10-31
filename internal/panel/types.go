@@ -101,7 +101,9 @@ type NodeConfig struct {
 	CustomOutbounds  []OutboundConfig   `json:"custom_outbounds,omitempty"`
 	CustomRoutes     []map[string]any   `json:"custom_routes,omitempty"`
 	CustomRouteRules []CustomRouteRule  `json:"custom_route_rules,omitempty"`
-	EgressProxy      *EgressProxyConfig `json:"egress_proxy,omitempty"`
+	EgressProxy        *EgressProxyConfig  `json:"egress_proxy,omitempty"`
+	EgressProxies      []EgressProxyConfig `json:"egress_proxies,omitempty"`
+	FinalEgressProxyID int                 `json:"final_egress_proxy_id,omitempty"`
 
 	// Certificate settings (Xboard extension)
 	CertConfig *CertConfig `json:"cert_config,omitempty"`

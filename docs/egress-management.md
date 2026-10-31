@@ -5,13 +5,15 @@ an Xboard node. It is not a user-facing plan or node-sharing feature.
 
 ## Behavior
 
-- One profile may be bound to many nodes; one node has at most one profile.
+- One profile may be granted to many nodes; a node may hold multiple profiles.
+- Availability is separate from the final catch-all. At most one granted
+  profile may be selected as the node's default/final outbound.
 - Credentials are exposed only in the authenticated node control-plane
   response. Subscriptions and user APIs never receive them.
 - Private-network blocks, custom routes and panel routes are evaluated before
   the managed egress catch-all rule.
-- Unbinding or disabling a profile removes the selected outbound and restores
-  the configured final outbound, normally `direct`.
+- Revoking or disabling a profile removes that outbound while keeping other
+  granted profiles available for route matching.
 - A node reports the applied profile ID and application timestamp back to the
   panel.
 - If a WebSocket update is missed, periodic REST reconciliation fetches the

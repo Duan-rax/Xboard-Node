@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 
@@ -266,7 +267,7 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 	// Install the new egress before changing rules, so no connection can see a
 	// rule that points at a not-yet-created outbound.
 	nopFactory := singLog.NewNOPFactory()
-	staleEgressTag, err := s.installEgressOutbound(
+	staleEgressTags, err := s.installEgressOutbounds(
 		outboundManager,
 		router,
 		opts.Outbounds,
@@ -283,7 +284,7 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 	}
 	nlog.Core().Debug("sing-box routing reloaded")
 
-	if staleEgressTag != "" {
+	for _, staleEgressTag := range staleEgressTags {
 		if err := outboundManager.Remove(staleEgressTag); err != nil {
 			nlog.Core().Warn("failed to remove stale egress outbound", "tag", staleEgressTag, "error", err)
 		} else {
@@ -375,63 +376,63 @@ func (s *SingBox) Reload(nodeConfig *model.NodeSpec, users []model.UserSpec, tls
 	return nil
 }
 
-func (s *SingBox) installEgressOutbound(
+func (s *SingBox) installEgressOutbounds(
 	outboundManager adapter.OutboundManager,
 	router adapter.Router,
 	outbounds []option.Outbound,
 	nodeConfig *model.NodeSpec,
 	loggerFactory singLog.Factory,
-) (string, error) {
-	var previous *model.EgressProxyConfig
+) ([]string, error) {
+	previous := map[int]model.EgressProxyConfig{}
 	if s.nodeConfig != nil {
-		previous = s.nodeConfig.EgressProxy
-	}
-	var next *model.EgressProxyConfig
-	if nodeConfig != nil {
-		next = nodeConfig.EgressProxy
-	}
-
-	previousTag := ""
-	if previous != nil {
-		previousTag = model.EgressProxyTag(previous.ID)
-	}
-	if reflect.DeepEqual(previous, next) {
-		return "", nil
-	}
-	if next == nil {
-		return previousTag, nil
-	}
-
-	nextTag := model.EgressProxyTag(next.ID)
-	var selected *option.Outbound
-	for i := range outbounds {
-		if outbounds[i].Tag == nextTag {
-			selected = &outbounds[i]
-			break
+		for _, proxy := range s.nodeConfig.AvailableEgressProxies() {
+			previous[proxy.ID] = proxy
 		}
 	}
-	if selected == nil {
-		return "", fmt.Errorf("egress outbound %s missing from generated config", nextTag)
+	next := map[int]model.EgressProxyConfig{}
+	if nodeConfig != nil {
+		for _, proxy := range nodeConfig.AvailableEgressProxies() {
+			next[proxy.ID] = proxy
+		}
 	}
 
-	logger := loggerFactory.NewLogger(fmt.Sprintf("outbound/%s[%s]", selected.Type, nextTag))
-	if err := outboundManager.Create(
-		s.ctx,
-		router,
-		logger,
-		nextTag,
-		selected.Type,
-		selected.Options,
-	); err != nil {
-		return "", fmt.Errorf("reload egress outbound %s: %w", nextTag, err)
+	for proxyID, proxy := range next {
+		if previousProxy, exists := previous[proxyID]; exists && reflect.DeepEqual(previousProxy, proxy) {
+			continue
+		}
+		nextTag := model.EgressProxyTag(proxyID)
+		var selected *option.Outbound
+		for i := range outbounds {
+			if outbounds[i].Tag == nextTag {
+				selected = &outbounds[i]
+				break
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("egress outbound %s missing from generated config", nextTag)
+		}
+		logger := loggerFactory.NewLogger(fmt.Sprintf("outbound/%s[%s]", selected.Type, nextTag))
+		if err := outboundManager.Create(
+			s.ctx,
+			router,
+			logger,
+			nextTag,
+			selected.Type,
+			selected.Options,
+		); err != nil {
+			return nil, fmt.Errorf("reload egress outbound %s: %w", nextTag, err)
+		}
+		nlog.Core().Info("egress outbound hot-reloaded", "tag", nextTag)
 	}
-	nlog.Core().Info("egress outbound hot-reloaded", "tag", nextTag)
 
-	// Create replaces a same-tag outbound, so only an older tag needs cleanup.
-	if previousTag != "" && previousTag != nextTag {
-		return previousTag, nil
+	stale := make([]string, 0)
+	for proxyID := range previous {
+		if _, exists := next[proxyID]; !exists {
+			stale = append(stale, model.EgressProxyTag(proxyID))
+		}
 	}
-	return "", nil
+	sort.Strings(stale)
+	return stale, nil
 }
 
 // registerTracker wires the ConnTracker to the current Router exactly once.

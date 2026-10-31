@@ -1098,11 +1098,20 @@ func (s *Service) buildMetrics(status monitor.Status) map[string]interface{} {
 	m["active_users"] = len(online)
 	m["total_users"] = len(lastUsers)
 	egressProxyID := 0
-	if lastConfig != nil && lastConfig.EgressProxy != nil {
-		egressProxyID = lastConfig.EgressProxy.ID
+	egressProxyIDs := []int{}
+	if lastConfig != nil {
+		for _, proxy := range lastConfig.AvailableEgressProxies() {
+			egressProxyIDs = append(egressProxyIDs, proxy.ID)
+		}
+		sort.Ints(egressProxyIDs)
+		if finalProxy := lastConfig.FinalEgressProxy(); finalProxy != nil {
+			egressProxyID = finalProxy.ID
+		}
 	}
 	m["config_applied_at"] = configAppliedAt.Unix()
 	m["egress_proxy_id"] = egressProxyID
+	m["final_egress_proxy_id"] = egressProxyID
+	m["egress_proxy_ids"] = egressProxyIDs
 	if lastConfig != nil {
 		m["config_revision"] = lastConfig.ConfigRevision
 		m["config_hash"] = lastConfig.ConfigHash
@@ -1172,6 +1181,7 @@ func (s *Service) capabilityMetrics() map[string]interface{} {
 		"config_atomic_apply",
 		"last_known_good",
 		"node_egress_probe",
+		"multi_egress",
 	}
 	if s.kernel.Name() == "xray" {
 		features = append(features, "domain_strategy")
