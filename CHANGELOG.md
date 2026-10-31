@@ -57,6 +57,9 @@ All notable fork changes are recorded here. Release dates use the
   or rule-set collections are present.
 - Let custom Sing-box rule-set and experimental settings override generated
   values without dropping the cache needed by remote rule-sets.
+- Refresh the persisted last-known-good config and users after every successful
+  hot reload, so a later process restart cannot silently return to an older
+  route table.
 
 ### Geo data
 

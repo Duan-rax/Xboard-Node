@@ -959,6 +959,7 @@ func (s *Service) applyChanges(ctx context.Context, configChanged, usersChanged 
 			s.appliedState.Config = s.lastConfig
 			s.appliedState.Users = s.lastUsers
 			s.markConfigApplied()
+			s.persistLastKnownGood(s.lastConfig, s.lastUsers)
 			if s.nodeLog != nil {
 				s.nodeLog.Info(fmt.Sprintf("config updated, %d users", len(s.lastUsers)))
 			}

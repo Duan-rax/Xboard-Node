@@ -250,9 +250,12 @@ func TestApplyUserDeltaAddPreparesLimiterBeforeKernelUpdate(t *testing.T) {
 func TestApplyChangesHotReloadsKernelWhenEgressChanges(t *testing.T) {
 	k := &fakeKernel{running: true}
 	s := newTestService(k)
+	s.stateDir = t.TempDir()
 	oldConfig := &model.NodeSpec{Protocol: "vless"}
 	newConfig := &model.NodeSpec{
-		Protocol: "vless",
+		Protocol:       "vless",
+		ConfigRevision: 42,
+		ConfigHash:     "new-hash",
 		EgressProxy: &model.EgressProxyConfig{
 			ID:       1,
 			Protocol: "socks5",
@@ -271,6 +274,13 @@ func TestApplyChangesHotReloadsKernelWhenEgressChanges(t *testing.T) {
 	}
 	if k.reloadCalls != 1 {
 		t.Fatalf("Reload call count = %d, want 1", k.reloadCalls)
+	}
+	persistedConfig, persistedUsers, err := s.loadPersistentLastKnownGood()
+	if err != nil {
+		t.Fatalf("load persisted config after hot reload: %v", err)
+	}
+	if persistedConfig.ConfigRevision != 42 || len(persistedUsers) != 1 {
+		t.Fatalf("persisted hot-reload state = %#v, users = %#v", persistedConfig, persistedUsers)
 	}
 }
 
