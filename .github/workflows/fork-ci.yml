@@ -1,8 +1,16 @@
 name: Fork CI and Release
 
-# Manual-only by project policy: pushing code must not compile or release.
+# Code pushes stay source-only; version tags build and publish the CLI.
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      publish_docker:
+        description: Also build and publish the multi-architecture Docker image
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -71,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.publish_docker
     permissions:
       contents: read
       packages: write
