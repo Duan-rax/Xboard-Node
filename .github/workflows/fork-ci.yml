@@ -1,12 +1,8 @@
 name: Fork CI and Release
 
+# Manual-only by project policy: pushing code must not compile or release.
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
-    tags: ['v*']
-  pull_request:
-    branches: [main, master, dev]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

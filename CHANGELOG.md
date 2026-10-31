@@ -5,6 +5,8 @@ All notable fork changes are recorded here. Release dates use the
 
 ## Unreleased
 
+- Run fork tests and release builds only by explicit manual workflow dispatch;
+  pushing code no longer triggers GitHub CLI, Docker or Release builds.
 - Add Clash API connection UUIDs to sing-box audit identity logs so concurrent
   connections with the same source or destination cannot be attributed to the
   wrong user. The identity log also creates an immediate zero-byte start event
