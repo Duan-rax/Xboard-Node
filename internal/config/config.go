@@ -78,6 +78,7 @@ type KernelOverride struct {
 	XrayAccessLog           string `yaml:"xray_access_log,omitempty"`
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override,omitempty"`
 	XrayRealityXver         int    `yaml:"xray_reality_xver,omitempty"`
+	DomainStrategy          string `yaml:"domain_strategy,omitempty"`
 	CustomConfig            string `yaml:"custom_config,omitempty"`
 }
 
@@ -137,6 +138,9 @@ type KernelConfig struct {
 	// Keep the panel's public dest/SNI for subscription generation.
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override"`
 	XrayRealityXver         int    `yaml:"xray_reality_xver"`
+	// DomainStrategy controls Xray routing when a rule needs the destination IP.
+	// Values: AsIs, IPIfNonMatch, IPOnDemand. Sing-box ignores this field.
+	DomainStrategy string `yaml:"domain_strategy"`
 	// GeoDataDir is the directory that contains GeoIP/GeoSite database files.
 	// For sing-box: geoip.db and geosite.db (geoip2-format).
 	// For xray:     geoip.dat and geosite.dat.
@@ -541,6 +545,9 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Kernel.XrayRealityXver == 0 {
 		c.Kernel.XrayRealityXver = parent.Kernel.XrayRealityXver
 	}
+	if c.Kernel.DomainStrategy == "" {
+		c.Kernel.DomainStrategy = parent.Kernel.DomainStrategy
+	}
 	if c.Kernel.GeoDataDir == "" {
 		c.Kernel.GeoDataDir = parent.Kernel.GeoDataDir
 	}
@@ -635,6 +642,9 @@ func (c *Config) setDefaultsFrom(baseDir string) {
 	}
 	if c.Kernel.LogLevel == "" {
 		c.Kernel.LogLevel = "warn"
+	}
+	if c.Kernel.DomainStrategy == "" {
+		c.Kernel.DomainStrategy = "AsIs"
 	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
@@ -794,6 +804,11 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("kernel.type must be 'singbox' or 'xray', got '%s'", c.Kernel.Type)
 	}
+	switch c.Kernel.DomainStrategy {
+	case "", "AsIs", "IPIfNonMatch", "IPOnDemand":
+	default:
+		return fmt.Errorf("kernel.domain_strategy must be AsIs, IPIfNonMatch, or IPOnDemand")
+	}
 	dataProvider := strings.ToLower(strings.TrimSpace(c.Kernel.GeoDataProvider))
 	switch dataProvider {
 	case "", "metacubex", "meta", "metacube", "loyalsoldier", "loyal", "sagernet", "sager", "custom":
@@ -890,6 +905,9 @@ func (c *Config) ExpandNodes() []*Config {
 			}
 			if entry.Kernel.XrayRealityXver != 0 {
 				nodeCfg.Kernel.XrayRealityXver = entry.Kernel.XrayRealityXver
+			}
+			if entry.Kernel.DomainStrategy != "" {
+				nodeCfg.Kernel.DomainStrategy = entry.Kernel.DomainStrategy
 			}
 			if entry.Kernel.CustomConfig != "" {
 				nodeCfg.Kernel.CustomConfig = entry.Kernel.CustomConfig

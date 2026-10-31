@@ -96,6 +96,7 @@ type fileKernelConfig struct {
 	ConfigDir     string           `yaml:"config_dir"`
 	LogLevel      string           `yaml:"log_level,omitempty"`
 	XrayAccessLog string           `yaml:"xray_access_log,omitempty"`
+	DomainStrategy string          `yaml:"domain_strategy,omitempty"`
 	GeoDataDir    string           `yaml:"geo_data_dir,omitempty"`
 	CustomConfig  string           `yaml:"custom_config,omitempty"`
 	CustomRoute   []map[string]any `yaml:"custom_route,omitempty"`
@@ -855,6 +856,7 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 			Type:          p.Kernel.Type,
 			LogLevel:      p.Kernel.LogLevel,
 			XrayAccessLog: p.Kernel.XrayAccessLog,
+			DomainStrategy: p.Kernel.DomainStrategy,
 		}
 	}
 	if p.Node.PushInterval != 0 || p.Node.PullInterval != 0 || p.Node.TrackInterval != 0 || p.Node.DeviceReportInterval != 0 {
@@ -889,6 +891,7 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 				ConfigDir:     inst.Kernel.ConfigDir,
 				LogLevel:      inst.Kernel.LogLevel,
 				XrayAccessLog: inst.Kernel.XrayAccessLog,
+				DomainStrategy: inst.Kernel.DomainStrategy,
 				GeoDataDir:    inst.Kernel.GeoDataDir,
 				CustomConfig:  inst.Kernel.CustomConfig,
 				CustomRoute:   inst.Kernel.CustomRoute,
@@ -1237,6 +1240,7 @@ func runConfigInit(args []string) error {
 		token          string
 		releaseVersion string
 		xrayAccessLog  string
+		domainStrategy string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -1314,6 +1318,9 @@ func runConfigInit(args []string) error {
 		case "--xray-access-log":
 			i++
 			xrayAccessLog = args[i]
+		case "--domain-strategy":
+			i++
+			domainStrategy = args[i]
 		}
 	}
 
@@ -1337,6 +1344,7 @@ func runConfigInit(args []string) error {
 			Type:          kernelType,
 			LogLevel:      "warn",
 			XrayAccessLog: xrayAccessLog,
+			DomainStrategy: domainStrategy,
 		},
 		Log:        config.LogConfig{Level: "info", Output: "stdout"},
 		HealthPort: healthPort,

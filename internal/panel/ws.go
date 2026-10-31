@@ -21,7 +21,9 @@ const (
 	WSEventSyncUserDelta = "sync.user.delta"
 	WSEventSyncDevices   = "sync.devices"   // panel → node: global device state
 	WSEventSyncNodes     = "sync.nodes"     // panel → machine: node list changed
+	WSEventProbeEgress   = "probe.egress"   // panel → node: test a managed egress path
 	WSEventReportDevices = "report.devices" // node → panel: report device snapshot
+	WSEventReportEgress  = "report.egress_probe"
 )
 
 // WSEvent is a parsed data event delivered to the service layer.
@@ -34,6 +36,7 @@ type WSEvent struct {
 
 	// Device sync fields
 	DeviceUsers map[int][]string // userID -> IPs (for sync.devices)
+	EgressProbe *EgressProbePayload
 	NodeID      int
 
 	// Machine node discovery fields (for sync.nodes)
@@ -82,6 +85,13 @@ type syncDevicesPayload struct {
 // syncNodesPayload carries the updated node list for a machine.
 type syncNodesPayload struct {
 	Nodes []MachineNode `json:"nodes"`
+}
+
+type EgressProbePayload struct {
+	RequestID string            `json:"request_id"`
+	Proxy     EgressProxyConfig `json:"proxy"`
+	Target    string            `json:"target,omitempty"`
+	NodeID    int               `json:"node_id,omitempty"`
 }
 
 // WSClientConfig holds WebSocket client tuning options.
@@ -349,6 +359,9 @@ func (w *WSClient) handleMessage(msg wsMessage) {
 	case WSEventSyncNodes:
 		w.handleDataEvent(msg)
 
+	case WSEventProbeEgress:
+		w.handleDataEvent(msg)
+
 	default:
 		nlog.Core().Debug("ws unknown event", "event", msg.Event)
 	}
@@ -437,6 +450,15 @@ func (w *WSClient) handleDataEvent(msg wsMessage) {
 			return
 		}
 		event.Nodes = p.Nodes
+
+	case WSEventProbeEgress:
+		var p EgressProbePayload
+		if err := decodeData(msg.Data, &p); err != nil {
+			nlog.Core().Warn("ws: cannot decode egress probe payload", "error", err)
+			return
+		}
+		event.EgressProbe = &p
+		event.NodeID = p.NodeID
 	}
 
 	w.onEvent(event)

@@ -98,7 +98,11 @@ func buildConfig(kcfg config.KernelConfig, nc *model.NodeSpec, users []model.Use
 	}
 
 	// Merge panel routes and static config routes
-	cfg["routing"] = buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
+	routing := buildRouting(nc.Routes, nc.CustomRouteRules, mergeRouteList(nc.CustomRoutes, kcfg.CustomRoute))
+	if kcfg.DomainStrategy != "" {
+		routing["domainStrategy"] = kcfg.DomainStrategy
+	}
+	cfg["routing"] = routing
 
 	mergeCustomXray(cfg, kcfg)
 	applyEgressProxyRoute(cfg, nc.EgressProxy)

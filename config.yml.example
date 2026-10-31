@@ -12,6 +12,8 @@
 #   type: "singbox"
 #   # Xray-only local access log for diagnostics.
 #   # xray_access_log: "/var/log/xboard-node/xray-access.log"
+#   # Xray routing strategy when IP/CIDR rules need a resolved destination.
+#   # domain_strategy: "AsIs" # AsIs | IPIfNonMatch | IPOnDemand
 #   # Xray-only Reality runtime overrides. Keep the panel Reality dest public
 #   # for subscription generation, then point the node at a local Nginx/Caddy
 #   # listener that accepts PROXY protocol.

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -174,6 +175,25 @@ func TranslateWSEvent(event panel.WSEvent, kcfg config.KernelConfig) (Event, err
 	if event.DeltaUsers != nil {
 		translated.DeltaUsers = model.UserSpecsFromPanel(event.DeltaUsers)
 	}
+	if event.EgressProbe != nil {
+		translated.EgressProbe = &model.EgressProbeRequest{
+			RequestID: event.EgressProbe.RequestID,
+			Target:    event.EgressProbe.Target,
+			Proxy: &model.EgressProxyConfig{
+				ID:            event.EgressProbe.Proxy.ID,
+				Name:          event.EgressProbe.Proxy.Name,
+				Protocol:      event.EgressProbe.Proxy.Protocol,
+				Host:          event.EgressProbe.Proxy.Host,
+				Port:          event.EgressProbe.Proxy.Port,
+				Username:      event.EgressProbe.Proxy.Username,
+				Password:      event.EgressProbe.Proxy.Password,
+				TLSEnabled:    event.EgressProbe.Proxy.TLSEnabled,
+				TLSServerName: event.EgressProbe.Proxy.TLSServerName,
+				AllowInsecure: event.EgressProbe.Proxy.AllowInsecure,
+				Config:        event.EgressProbe.Proxy.Config,
+			},
+		}
+	}
 	return translated, nil
 }
 
@@ -184,4 +204,10 @@ func (p *panelPushClient) SendDeviceReport(devices map[int][]string) {
 }
 func (p *panelPushClient) SendStatus(metrics map[string]interface{}) {
 	p.inner.SendNodeStatus(0, metrics)
+}
+func (p *panelPushClient) SendEgressProbe(result model.EgressProbeResult) {
+	data, err := json.Marshal(result)
+	if err == nil {
+		p.inner.SendRaw(panel.WSEventReportEgress, data)
+	}
 }

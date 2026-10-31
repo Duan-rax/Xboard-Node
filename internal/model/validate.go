@@ -88,9 +88,26 @@ func validateEgressProxy(proxy *EgressProxyConfig, kernelType string, existingTa
 		if !uuidPattern.MatchString(uuid) {
 			return fmt.Errorf("validate egress proxy: vless config.uuid must use the standard 36-character UUID format")
 		}
+		flow := strings.ToLower(strings.TrimSpace(stringValue(proxy.Config, "flow")))
+		if flow != "" && flow != "xtls-rprx-vision" {
+			return fmt.Errorf("validate egress proxy: vless flow %q is not supported", flow)
+		}
 	}
 	if protocol == "trojan" && strings.TrimSpace(proxy.Password) == "" {
 		return fmt.Errorf("validate egress proxy: trojan requires a password")
+	}
+	network := strings.ToLower(strings.TrimSpace(stringValue(proxy.Config, "network")))
+	if network == "" {
+		network = "tcp"
+	}
+	if network == "websocket" {
+		network = "ws"
+	}
+	if !map[string]bool{"tcp": true, "ws": true, "grpc": true, "http": true, "httpupgrade": true}[network] {
+		return fmt.Errorf("validate egress proxy: transport network %q is not supported", network)
+	}
+	if network != "tcp" && protocol != "vless" && protocol != "trojan" {
+		return fmt.Errorf("validate egress proxy: transport network %q is only supported by VLESS or Trojan", network)
 	}
 	if reality, ok := mapValue(proxy.Config, "reality"); ok && len(reality) > 0 {
 		if strings.TrimSpace(stringValue(reality, "public_key")) == "" {
@@ -102,6 +119,9 @@ func validateEgressProxy(proxy *EgressProxyConfig, kernelType string, existingTa
 		}
 		if strings.TrimSpace(proxy.TLSServerName) == "" && strings.TrimSpace(stringValue(proxy.Config, "server_name")) == "" {
 			return fmt.Errorf("validate egress proxy: reality requires tls_server_name")
+		}
+		if network != "tcp" {
+			return fmt.Errorf("validate egress proxy: reality requires tcp transport")
 		}
 	}
 	tag := EgressProxyTag(proxy.ID)

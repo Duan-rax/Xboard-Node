@@ -49,13 +49,17 @@ func egressProxyToXray(proxy *model.EgressProxyConfig) M {
 }
 
 func egressProxyStreamSettings(proxy *model.EgressProxyConfig) M {
-	if !proxy.TLSEnabled && proxy.Config["reality"] == nil {
-		return nil
-	}
-	network := egressStringValue(proxy.Config, "network")
+	network := strings.ToLower(egressStringValue(proxy.Config, "network"))
 	if network == "" {
 		network = "tcp"
 	}
+	if network == "websocket" {
+		network = "ws"
+	}
+	if !proxy.TLSEnabled && proxy.Config["reality"] == nil && network == "tcp" {
+		return nil
+	}
+	stream := M{"network": network}
 	if reality, ok := proxy.Config["reality"].(map[string]any); ok {
 		fingerprint := egressStringValue(reality, "fingerprint")
 		if fingerprint == "" {
@@ -77,17 +81,57 @@ func egressProxyStreamSettings(proxy *model.EgressProxyConfig) M {
 		if name != "" {
 			settings["serverName"] = name
 		}
-		return M{"network": network, "security": "reality", "realitySettings": settings}
+		stream["security"] = "reality"
+		stream["realitySettings"] = settings
+		applyEgressTransportSettings(stream, proxy, network)
+		return stream
 	}
-	settings := M{"allowInsecure": proxy.AllowInsecure}
-	name := proxy.TLSServerName
-	if name == "" {
-		name = egressStringValue(proxy.Config, "server_name")
+	if proxy.TLSEnabled {
+		settings := M{"allowInsecure": proxy.AllowInsecure}
+		name := proxy.TLSServerName
+		if name == "" {
+			name = egressStringValue(proxy.Config, "server_name")
+		}
+		if name != "" {
+			settings["serverName"] = name
+		}
+		stream["security"] = "tls"
+		stream["tlsSettings"] = settings
+	} else {
+		stream["security"] = "none"
 	}
-	if name != "" {
-		settings["serverName"] = name
+	applyEgressTransportSettings(stream, proxy, network)
+	return stream
+}
+
+func applyEgressTransportSettings(stream M, proxy *model.EgressProxyConfig, network string) {
+	path := egressStringValue(proxy.Config, "path")
+	if path == "" {
+		path = "/"
 	}
-	return M{"network": network, "security": "tls", "tlsSettings": settings}
+	host := egressStringValue(proxy.Config, "host")
+	switch network {
+	case "ws", "websocket":
+		settings := M{"path": path}
+		if host != "" {
+			settings["headers"] = M{"Host": host}
+		}
+		stream["wsSettings"] = settings
+	case "grpc":
+		stream["grpcSettings"] = M{"serviceName": egressStringValue(proxy.Config, "service_name")}
+	case "http":
+		settings := M{"path": path}
+		if host != "" {
+			settings["host"] = []string{host}
+		}
+		stream["httpSettings"] = settings
+	case "httpupgrade":
+		settings := M{"path": path}
+		if host != "" {
+			settings["host"] = host
+		}
+		stream["httpupgradeSettings"] = settings
+	}
 }
 
 func hasPanelDNSRoute(rules []model.RouteRule) bool {

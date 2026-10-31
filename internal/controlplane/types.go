@@ -13,6 +13,7 @@ const (
 	EventSyncUsers     EventType = "sync.users"
 	EventSyncUserDelta EventType = "sync.user.delta"
 	EventSyncDevices   EventType = "sync.devices"
+	EventProbeEgress   EventType = "probe.egress"
 )
 
 type Event struct {
@@ -22,6 +23,7 @@ type Event struct {
 	DeltaAction string
 	DeltaUsers  []model.UserSpec
 	DeviceUsers map[int][]string
+	EgressProbe *model.EgressProbeRequest
 }
 
 type StatusChange struct {
@@ -64,6 +66,7 @@ type PushClient interface {
 	IsConnected() bool
 	SendDeviceReport(devices map[int][]string)
 	SendStatus(metrics map[string]interface{})
+	SendEgressProbe(result model.EgressProbeResult)
 }
 
 type Source interface {

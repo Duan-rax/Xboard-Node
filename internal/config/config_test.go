@@ -180,6 +180,20 @@ kernel:
 	}
 }
 
+func TestValidate_XrayDomainStrategy(t *testing.T) {
+	config := &Config{
+		Panel:  PanelConfig{URL: "https://panel.example.com", Token: "token", NodeID: 1},
+		Kernel: KernelConfig{Type: "xray", DomainStrategy: "IPIfNonMatch"},
+	}
+	if err := config.validate(); err != nil {
+		t.Fatalf("valid Xray domain strategy rejected: %v", err)
+	}
+	config.Kernel.DomainStrategy = "InvalidStrategy"
+	if err := config.validate(); err == nil {
+		t.Fatal("invalid Xray domain strategy was accepted")
+	}
+}
+
 func TestLoad_AutoTLS_NoDomain(t *testing.T) {
 	path := writeTemp(t, `
 panel:

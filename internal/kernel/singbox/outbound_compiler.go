@@ -54,14 +54,58 @@ func egressProxyToSingbox(proxy *model.EgressProxyConfig) M {
 		if tls != nil {
 			base["tls"] = tls
 		}
+		if transport := egressProxyTransport(proxy); transport != nil {
+			base["transport"] = transport
+		}
 	case "trojan":
 		base["type"] = "trojan"
 		base["password"] = proxy.Password
 		if tls != nil {
 			base["tls"] = tls
 		}
+		if transport := egressProxyTransport(proxy); transport != nil {
+			base["transport"] = transport
+		}
 	}
 	return base
+}
+
+func egressProxyTransport(proxy *model.EgressProxyConfig) M {
+	network := strings.ToLower(egressStringValue(proxy.Config, "network"))
+	switch network {
+	case "ws", "websocket":
+		transport := M{"type": "ws", "path": firstNonEmpty(egressStringValue(proxy.Config, "path"), "/")}
+		host := egressStringValue(proxy.Config, "host")
+		if host != "" {
+			transport["headers"] = M{"Host": host}
+		}
+		return transport
+	case "grpc":
+		return M{"type": "grpc", "service_name": egressStringValue(proxy.Config, "service_name")}
+	case "http":
+		transport := M{"type": "http", "path": firstNonEmpty(egressStringValue(proxy.Config, "path"), "/")}
+		if host := egressStringValue(proxy.Config, "host"); host != "" {
+			transport["host"] = []string{host}
+		}
+		return transport
+	case "httpupgrade":
+		transport := M{"type": "httpupgrade", "path": firstNonEmpty(egressStringValue(proxy.Config, "path"), "/")}
+		if host := egressStringValue(proxy.Config, "host"); host != "" {
+			transport["host"] = host
+		}
+		return transport
+	default:
+		return nil
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func egressProxyTLS(proxy *model.EgressProxyConfig) M {

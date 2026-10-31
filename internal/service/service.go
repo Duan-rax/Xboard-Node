@@ -25,6 +25,7 @@ import (
 	"github.com/cedar2025/xboard-node/internal/model"
 	"github.com/cedar2025/xboard-node/internal/monitor"
 	"github.com/cedar2025/xboard-node/internal/nlog"
+	"github.com/cedar2025/xboard-node/internal/probe"
 	"github.com/cedar2025/xboard-node/internal/tracker"
 )
 
@@ -74,6 +75,8 @@ type Service struct {
 	wsResyncPending  atomic.Bool
 	machineMailbox   *controlplane.NodeMailbox
 	machineMailboxCh <-chan struct{}
+	probeSem         chan struct{}
+	stateDir         string
 
 	// metricsMu: lastUsers, lastConfig, wsClient, wsDisconnectAt (buildMetrics vs main loop).
 	metricsMu sync.RWMutex
@@ -166,6 +169,8 @@ func newService(cfg *config.Config, cp controlplane.ControlPlane) *Service {
 		wsEvents:     make(chan controlplane.Event, 16),
 		wsStatusCh:   make(chan controlplane.StatusChange, 4),
 		pullResults:  make(chan pullResult, 1),
+		probeSem:     make(chan struct{}, 2),
+		stateDir:     cfg.Kernel.ConfigDir,
 	}
 }
 
@@ -178,7 +183,12 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// Handshake: get WS config + initial data in one call
 	if err := s.initialSetup(ctx); err != nil {
-		return fmt.Errorf("initial setup: %w", err)
+		if !s.restorePersistentLastKnownGood(ctx) {
+			return fmt.Errorf("initial setup: %w", err)
+		}
+		s.pushInterval = 60
+		s.pullInterval = 60
+		nlog.Core().Warn("initial setup failed, running persistent last-known-good", "error", err)
 	}
 	defer s.kernel.Stop()
 
@@ -586,9 +596,23 @@ func (s *Service) handleWSEvent(ctx context.Context, event controlplane.Event) {
 			s.kernel.UpdateGlobalDevices(event.DeviceUsers)
 		}
 
+	case controlplane.EventProbeEgress:
+		if event.EgressProbe == nil || s.wsClient == nil {
+			return
+		}
+		go s.runEgressProbe(s.wsClient, event.EgressProbe)
+
 	default:
 		nlog.Core().Debug(fmt.Sprintf("unknown ws event: %v", event.Type))
 	}
+}
+
+func (s *Service) runEgressProbe(client controlplane.PushClient, request *model.EgressProbeRequest) {
+	s.probeSem <- struct{}{}
+	defer func() { <-s.probeSem }()
+	result := probe.Run(context.Background(), *request)
+	result.NodeID = s.cfg.Panel.NodeID
+	client.SendEgressProbe(result)
 }
 
 // pullViaAPIAsync fetches config/users from the panel API in a background
@@ -739,6 +763,7 @@ func (s *Service) startKernel(nc *model.NodeSpec, users []model.UserSpec) bool {
 	s.appliedState.Config = nc
 	s.appliedState.Users = users
 	s.markConfigApplied()
+	s.persistLastKnownGood(nc, users)
 
 	// Initialize node logger on first successful start
 	if s.nodeLog == nil {
@@ -1146,6 +1171,10 @@ func (s *Service) capabilityMetrics() map[string]interface{} {
 		"config_hash",
 		"config_atomic_apply",
 		"last_known_good",
+		"node_egress_probe",
+	}
+	if s.kernel.Name() == "xray" {
+		features = append(features, "domain_strategy")
 	}
 	features = append(features, caps.RouteFeatures...)
 	sort.Strings(features)
@@ -1156,11 +1185,15 @@ func (s *Service) capabilityMetrics() map[string]interface{} {
 		}
 	}
 	features = uniqueFeatures
-	return map[string]interface{}{
+	metrics := map[string]interface{}{
 		"kernel":         s.kernel.Name(),
 		"kernel_version": s.kernel.Version(),
 		"features":       features,
 	}
+	if s.kernel.Name() == "xray" {
+		metrics["domain_strategy"] = s.cfg.Kernel.DomainStrategy
+	}
+	return metrics
 }
 
 func (s *Service) markConfigApplied() {

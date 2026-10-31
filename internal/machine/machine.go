@@ -15,6 +15,7 @@ import (
 	"github.com/cedar2025/xboard-node/internal/monitor"
 	"github.com/cedar2025/xboard-node/internal/nlog"
 	"github.com/cedar2025/xboard-node/internal/panel"
+	"github.com/cedar2025/xboard-node/internal/probe"
 	"github.com/cedar2025/xboard-node/internal/service"
 )
 
@@ -53,6 +54,7 @@ type Orchestrator struct {
 
 	pullInterval time.Duration
 	pushInterval time.Duration
+	probeSem     chan struct{}
 }
 
 // New creates a machine orchestrator from the given config.
@@ -68,6 +70,7 @@ func New(cfg *config.Config) *Orchestrator {
 		nodes:     make(map[int]*nodeHandle),
 		mailboxes: make(map[int]*controlplane.NodeMailbox),
 		statuses:  make(map[int]chan<- controlplane.StatusChange),
+		probeSem:  make(chan struct{}, 2),
 	}
 }
 
@@ -328,6 +331,10 @@ func (o *Orchestrator) onWSEvent(event panel.WSEvent) {
 			"type", event.Type, "node_id", nodeID, "error", err)
 		return
 	}
+	if translated.Type == controlplane.EventProbeEgress {
+		go o.runEgressProbe(nodeID, translated.EgressProbe)
+		return
+	}
 
 	o.eventsMu.RLock()
 	mailbox, ok := o.mailboxes[nodeID]
@@ -418,4 +425,33 @@ func (p *machineNodePush) SendStatus(metrics map[string]interface{}) {
 		return
 	}
 	p.ws.SendNodeStatus(p.nodeID, metrics)
+}
+
+func (p *machineNodePush) SendEgressProbe(result model.EgressProbeResult) {
+	if p.ws == nil || !p.ws.IsConnected() {
+		return
+	}
+	result.NodeID = p.nodeID
+	data, err := json.Marshal(result)
+	if err == nil {
+		p.ws.SendRaw(panel.WSEventReportEgress, data)
+	}
+}
+
+func (o *Orchestrator) runEgressProbe(nodeID int, request *model.EgressProbeRequest) {
+	if request == nil {
+		return
+	}
+	o.probeSem <- struct{}{}
+	defer func() { <-o.probeSem }()
+	result := probe.Run(context.Background(), *request)
+	result.NodeID = nodeID
+	if o.ws == nil || !o.ws.IsConnected() {
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+	o.ws.SendRaw(panel.WSEventReportEgress, data)
 }

@@ -610,6 +610,19 @@ func TestBuildConfig_XrayAccessLog(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_XrayDomainStrategy(t *testing.T) {
+	nc := &panel.NodeConfig{Protocol: "shadowsocks", ServerPort: 8388, Cipher: "aes-128-gcm"}
+	cfg := buildConfig(config.KernelConfig{
+		Type:           "xray",
+		LogLevel:       "warn",
+		DomainStrategy: "IPIfNonMatch",
+	}, testNodeSpec(nc), testUsers, kernel.TLSCert{})
+	routing := cfg["routing"].(M)
+	if got := routing["domainStrategy"]; got != "IPIfNonMatch" {
+		t.Fatalf("domainStrategy = %v, want IPIfNonMatch", got)
+	}
+}
+
 func TestBuildConfig_StatsEnabled(t *testing.T) {
 	nc := panel.NodeConfig{
 		Protocol:   "vmess",
