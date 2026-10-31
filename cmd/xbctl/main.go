@@ -96,7 +96,7 @@ type fileKernelConfig struct {
 	ConfigDir      string           `yaml:"config_dir"`
 	LogLevel       string           `yaml:"log_level,omitempty"`
 	XrayAccessLog  string           `yaml:"xray_access_log,omitempty"`
-	DomainStrategy string          `yaml:"domain_strategy,omitempty"`
+	DomainStrategy string           `yaml:"domain_strategy,omitempty"`
 	GeoDataDir     string           `yaml:"geo_data_dir,omitempty"`
 	CustomConfig   string           `yaml:"custom_config,omitempty"`
 	CustomRoute    []map[string]any `yaml:"custom_route,omitempty"`
