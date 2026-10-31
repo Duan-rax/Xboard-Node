@@ -411,7 +411,11 @@ remove_legacy_audit_runtime() {
     rm -f "$LEGACY_AUDIT_SERVICE_PATH" "$LEGACY_AUDIT_BINARY_PATH"
     rm -f "$LEGACY_AUDIT_LOGROTATE_PATH" "$LEGACY_JOURNALD_DROPIN_PATH"
     rm -rf "$LEGACY_AUDIT_CONFIG_DIR"
+    rm -f "${INSTALL_ROOT}/singbox-audit.json"
     rm -f "${INSTALL_ROOT}/traffic-audit-targets.json"
+    rm -f "${INSTALL_ROOT}"/config.yml.bak-pre-traffic-audit-*
+    rm -f /var/log/xboard-node/xray-*.log /var/log/xboard-node/xray-*.log.*
+    systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
 validate_positive_int() {
