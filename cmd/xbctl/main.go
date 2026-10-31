@@ -96,10 +96,6 @@ type fileKernelConfig struct {
 	ConfigDir               string           `yaml:"config_dir"`
 	LogLevel                string           `yaml:"log_level,omitempty"`
 	XrayAccessLog           string           `yaml:"xray_access_log,omitempty"`
-	SingBoxAuditAPIEnabled  bool             `yaml:"singbox_audit_api_enabled,omitempty"`
-	SingBoxAuditAPIBasePort int              `yaml:"singbox_audit_api_base_port,omitempty"`
-	SingBoxAuditAPISecret   string           `yaml:"singbox_audit_api_secret,omitempty"`
-	AuditManifestPath       string           `yaml:"audit_manifest_path,omitempty"`
 	GeoDataDir              string           `yaml:"geo_data_dir,omitempty"`
 	CustomConfig            string           `yaml:"custom_config,omitempty"`
 	CustomRoute             []map[string]any `yaml:"custom_route,omitempty"`
@@ -859,10 +855,6 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 			Type:                    p.Kernel.Type,
 			LogLevel:                p.Kernel.LogLevel,
 			XrayAccessLog:           p.Kernel.XrayAccessLog,
-			SingBoxAuditAPIEnabled:  p.Kernel.SingBoxAuditAPIEnabled,
-			SingBoxAuditAPIBasePort: p.Kernel.SingBoxAuditAPIBasePort,
-			SingBoxAuditAPISecret:   p.Kernel.SingBoxAuditAPISecret,
-			AuditManifestPath:       p.Kernel.AuditManifestPath,
 		}
 	}
 	if p.Node.PushInterval != 0 || p.Node.PullInterval != 0 || p.Node.TrackInterval != 0 || p.Node.DeviceReportInterval != 0 {
@@ -897,10 +889,6 @@ func writeRootConfig(path string, root *config.RootConfig) error {
 				ConfigDir:               inst.Kernel.ConfigDir,
 				LogLevel:                inst.Kernel.LogLevel,
 				XrayAccessLog:           inst.Kernel.XrayAccessLog,
-				SingBoxAuditAPIEnabled:  inst.Kernel.SingBoxAuditAPIEnabled,
-				SingBoxAuditAPIBasePort: inst.Kernel.SingBoxAuditAPIBasePort,
-				SingBoxAuditAPISecret:   inst.Kernel.SingBoxAuditAPISecret,
-				AuditManifestPath:       inst.Kernel.AuditManifestPath,
 				GeoDataDir:              inst.Kernel.GeoDataDir,
 				CustomConfig:            inst.Kernel.CustomConfig,
 				CustomRoute:             inst.Kernel.CustomRoute,
@@ -1248,10 +1236,6 @@ func runConfigInit(args []string) error {
 		installRoot    string
 		token          string
 		releaseVersion string
-		singboxAudit   bool
-		auditBasePort  int
-		auditSecret    string
-		auditManifest  string
 		xrayAccessLog  string
 	)
 
@@ -1327,21 +1311,6 @@ func runConfigInit(args []string) error {
 		case "--version":
 			i++
 			releaseVersion = args[i]
-		case "--singbox-audit-api":
-			singboxAudit = true
-		case "--singbox-audit-base-port":
-			i++
-			v, err := strconv.Atoi(args[i])
-			if err != nil {
-				return fmt.Errorf("invalid --singbox-audit-base-port: %w", err)
-			}
-			auditBasePort = v
-		case "--singbox-audit-secret":
-			i++
-			auditSecret = args[i]
-		case "--audit-manifest-path":
-			i++
-			auditManifest = args[i]
 		case "--xray-access-log":
 			i++
 			xrayAccessLog = args[i]
@@ -1368,10 +1337,6 @@ func runConfigInit(args []string) error {
 			Type:                    kernelType,
 			LogLevel:                "warn",
 			XrayAccessLog:           xrayAccessLog,
-			SingBoxAuditAPIEnabled:  singboxAudit,
-			SingBoxAuditAPIBasePort: auditBasePort,
-			SingBoxAuditAPISecret:   auditSecret,
-			AuditManifestPath:       auditManifest,
 		},
 		Log:        config.LogConfig{Level: "info", Output: "stdout"},
 		HealthPort: healthPort,

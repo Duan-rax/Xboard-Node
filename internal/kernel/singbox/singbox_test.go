@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/cedar2025/xboard-node/internal/config"
-	"github.com/gofrs/uuid/v5"
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
 	singM "github.com/sagernet/sing/common/metadata"
 	"golang.org/x/time/rate"
 )
@@ -51,20 +49,11 @@ func TestSingBoxCapabilities(t *testing.T) {
 }
 
 
-
 type testConn struct {
 	closed bool
 	reads  [][]byte
 	writes [][]byte
 }
-
-type clashMetadataConn struct {
-	net.Conn
-	metadata trafficontrol.TrackerMetadata
-}
-
-func (c *clashMetadataConn) Metadata() *trafficontrol.TrackerMetadata { return &c.metadata }
-func (c *clashMetadataConn) Upstream() any                            { return c.Conn }
 
 func (c *testConn) Read(b []byte) (int, error) {
 	if len(c.reads) == 0 {
@@ -135,20 +124,6 @@ func TestConnTrackerRoutedConnectionTracksTrafficAndAliveIPs(t *testing.T) {
 	}
 	if connCount != 0 {
 		t.Fatalf("connCount after close = %d, want 0", connCount)
-	}
-}
-
-func TestAuditConnectionIDUsesClashMetadata(t *testing.T) {
-	id := uuid.Must(uuid.NewV4())
-	conn := &clashMetadataConn{
-		Conn:     &testConn{},
-		metadata: trafficontrol.TrackerMetadata{ID: id},
-	}
-	if got := auditConnectionID(conn, "fallback"); got != id.String() {
-		t.Fatalf("connection ID = %q, want %q", got, id.String())
-	}
-	if got := auditConnectionID(&testConn{}, "fallback"); got != "fallback" {
-		t.Fatalf("fallback connection ID = %q", got)
 	}
 }
 
@@ -247,29 +222,5 @@ func TestConnTrackerRateLimitHonorsContextCancellation(t *testing.T) {
 	cancelWrite()
 	if n, err := writeTracked.Write([]byte("a")); !errors.Is(err, context.Canceled) || n != 0 {
 		t.Fatalf("second Write() = (%d, %v), want (0, context canceled)", n, err)
-	}
-}
-
-func TestTrackedPacketConnTracksRealUDPDestinationBytes(t *testing.T) {
-	conn := &trackedPacketConn{
-		userID:     7,
-		connID:     "clash-packets-7",
-		source:     "203.0.113.8:52144",
-		auditDests: make(map[string]udpAuditCounter),
-		auditLimit: 2,
-	}
-	conn.trackUDPAudit("speed.cloudflare.com:443", 100, 200)
-	conn.trackUDPAudit("speed.cloudflare.com:443", 10, 20)
-	conn.trackUDPAudit("1.1.1.1:443", 30, 40)
-	conn.trackUDPAudit("overflow.example:443", 5, 6)
-
-	if got := conn.auditDests["speed.cloudflare.com:443"]; got != (udpAuditCounter{upload: 110, download: 220}) {
-		t.Fatalf("cloudflare counter = %#v", got)
-	}
-	if got := conn.auditDests["1.1.1.1:443"]; got != (udpAuditCounter{upload: 30, download: 40}) {
-		t.Fatalf("IP counter = %#v", got)
-	}
-	if conn.auditOther != (udpAuditCounter{upload: 5, download: 6}) {
-		t.Fatalf("overflow counter = %#v", conn.auditOther)
 	}
 }

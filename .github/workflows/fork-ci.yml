@@ -23,10 +23,6 @@ jobs:
       - name: Run tests
         run: make -f Makefile.fork test
 
-      - name: Test traffic audit collector
-        working-directory: tools/traffic-audit-collector
-        run: go test ./...
-
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -58,13 +54,6 @@ jobs:
             make -f Makefile.fork build-linux-arm64
           fi
 
-      - name: Build traffic audit collector
-        working-directory: tools/traffic-audit-collector
-        run: |
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -trimpath -ldflags "-s -w" \
-            -o traffic-audit-collector-${{ matrix.goos }}-${{ matrix.goarch }} .
-
       - name: Upload xboard-node artifact
         uses: actions/upload-artifact@v4
         with:
@@ -76,12 +65,6 @@ jobs:
         with:
           name: xbctl-${{ matrix.goos }}-${{ matrix.goarch }}
           path: xbctl-${{ matrix.goos }}-${{ matrix.goarch }}
-
-      - name: Upload traffic audit collector artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: traffic-audit-collector-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: tools/traffic-audit-collector/traffic-audit-collector-${{ matrix.goos }}-${{ matrix.goarch }}
 
   build-docker:
     name: Build & Push Docker Image
@@ -140,7 +123,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum xboard-node-linux-* xbctl-linux-* traffic-audit-collector-linux-* > SHA256SUMS
+        run: sha256sum xboard-node-linux-* xbctl-linux-* > SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -152,8 +135,6 @@ jobs:
             dist/xboard-node-linux-arm64
             dist/xbctl-linux-amd64
             dist/xbctl-linux-arm64
-            dist/traffic-audit-collector-linux-amd64
-            dist/traffic-audit-collector-linux-arm64
             install-fork.sh
             dist/SHA256SUMS
 

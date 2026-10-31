@@ -6,13 +6,11 @@ import (
 	"net"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
 	"github.com/sagernet/sing/common/buf"
 	singM "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -214,24 +212,12 @@ func (t *ConnTracker) RoutedConnection(
 ) net.Conn {
 	uuid := metadata.User
 	sourceIP := metadata.Source.Addr.String()
-	destination := metadata.Destination.String()
-	if metadata.Domain != "" && metadata.Destination.Port > 0 {
-		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
-	}
-	connID := auditConnectionID(conn, t.nextID())
+	connID := t.nextID()
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
 	t.usersMu.RUnlock()
-	if uid > 0 {
-		nlog.Core().Info("audit connection",
-			"user_id", uid,
-			"connection_id", connID,
-			"source", metadata.Source.String(),
-			"destination", destination,
-			"domain", metadata.Domain)
-	}
 
 	// Device limit gate-keeping
 	if dlf := t.deviceLimitFunc.Load(); dlf != nil {
@@ -283,24 +269,11 @@ func (t *ConnTracker) RoutedPacketConnection(
 ) N.PacketConn {
 	uuid := metadata.User
 	sourceIP := metadata.Source.Addr.String()
-	destination := metadata.Destination.String()
-	if metadata.Domain != "" && metadata.Destination.Port > 0 {
-		destination = net.JoinHostPort(metadata.Domain, strconv.Itoa(int(metadata.Destination.Port)))
-	}
-	connID := auditConnectionID(conn, t.nextID())
 
 	t.usersMu.RLock()
 	uid := t.uuidMap[uuid]
 	us := t.users[uid]
 	t.usersMu.RUnlock()
-	if uid > 0 {
-		nlog.Core().Info("audit connection",
-			"user_id", uid,
-			"connection_id", connID,
-			"source", metadata.Source.String(),
-			"destination", destination,
-			"domain", metadata.Domain)
-	}
 
 	// Device limit gate-keeping
 	if dlf := t.deviceLimitFunc.Load(); dlf != nil {
@@ -327,38 +300,10 @@ func (t *ConnTracker) RoutedPacketConnection(
 		PacketConn: conn,
 		tracker:    t,
 		us:         us,
-		userID:     uid,
-		connID:     connID,
-		source:     metadata.Source.String(),
 		sourceIP:   sourceIP,
 		limiter:    lim,
 		ctx:        ctx,
-		auditDests: make(map[string]udpAuditCounter),
-		auditLimit: 128,
 	}
-}
-
-// auditConnectionID uses the Clash API connection UUID when it is already
-// present in the connection wrapper chain. This lets the external collector
-// join the identity log to /connections deterministically instead of matching
-// only by source and destination.
-func auditConnectionID(connection any, fallback string) string {
-	current := connection
-	for depth := 0; current != nil && depth < 12; depth++ {
-		if provider, ok := current.(interface {
-			Metadata() *trafficontrol.TrackerMetadata
-		}); ok {
-			if metadata := provider.Metadata(); metadata != nil && metadata.ID.String() != "" {
-				return metadata.ID.String()
-			}
-		}
-		wrapper, ok := current.(interface{ Upstream() any })
-		if !ok {
-			break
-		}
-		current = wrapper.Upstream()
-	}
-	return fallback
 }
 
 // checkDeviceGate rejects connections exceeding device limit.
@@ -739,19 +684,12 @@ func (c *trackedConn) WriterReplaceable() bool { return true }
 
 type trackedPacketConn struct {
 	N.PacketConn
-	tracker     *ConnTracker
-	us          *userStats
-	userID      int
-	connID      string
-	source      string
-	sourceIP    string
-	limiter     *rate.Limiter
-	ctx         context.Context
-	closed      atomic.Bool
-	auditMu     sync.Mutex
-	auditDests  map[string]udpAuditCounter
-	auditOther  udpAuditCounter
-	auditLimit  int
+	tracker  *ConnTracker
+	us       *userStats
+	sourceIP string
+	limiter  *rate.Limiter
+	ctx      context.Context
+	closed   atomic.Bool
 }
 
 func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (singM.Socksaddr, error) {
@@ -761,7 +699,6 @@ func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (singM.Socksaddr, err
 		if c.us != nil {
 			c.us.upload.Add(n) // 从入站读取 = 用户上传
 		}
-		c.trackUDPAudit(dest.String(), n, 0)
 		if c.limiter != nil {
 			// Non-blocking rate limiting with context cancellation
 			if !c.limiter.AllowN(time.Now(), int(n)) {
@@ -808,84 +745,16 @@ func (c *trackedPacketConn) WritePacket(buffer *buf.Buffer, dest singM.Socksaddr
 	if err == nil && c.us != nil {
 		c.us.download.Add(n) // 向入站写入 = 用户下载
 	}
-	if err == nil {
-		c.trackUDPAudit(dest.String(), 0, n)
-	}
 	return err
 }
 
 func (c *trackedPacketConn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
-		c.flushUDPAudit()
 		if c.us != nil {
 			c.us.removeConn(c.sourceIP)
 		}
-		c.tracker.removeConnRef(c.connID)
 	}
 	return c.PacketConn.Close()
-}
-
-type udpAuditCounter struct {
-	upload   int64
-	download int64
-}
-
-func (c *trackedPacketConn) trackUDPAudit(destination string, upload, download int64) {
-	if c.userID <= 0 || c.connID == "" || (upload == 0 && download == 0) {
-		return
-	}
-	destination = strings.TrimSpace(destination)
-	if destination == "" {
-		destination = "udp-unknown.invalid"
-	}
-	c.auditMu.Lock()
-	defer c.auditMu.Unlock()
-	if c.auditDests == nil {
-		c.auditDests = make(map[string]udpAuditCounter)
-	}
-	if c.auditLimit == 0 {
-		c.auditLimit = 128
-	}
-	counter, found := c.auditDests[destination]
-	if !found && len(c.auditDests) >= c.auditLimit {
-		c.auditOther.upload += upload
-		c.auditOther.download += download
-		return
-	}
-	counter.upload += upload
-	counter.download += download
-	c.auditDests[destination] = counter
-}
-
-func (c *trackedPacketConn) flushUDPAudit() {
-	c.auditMu.Lock()
-	destinations := make(map[string]udpAuditCounter, len(c.auditDests)+1)
-	for destination, counter := range c.auditDests {
-		destinations[destination] = counter
-	}
-	other := c.auditOther
-	c.auditDests = make(map[string]udpAuditCounter)
-	c.auditOther = udpAuditCounter{}
-	c.auditMu.Unlock()
-	if other.upload > 0 || other.download > 0 {
-		destinations["udp-other.invalid"] = other
-	}
-	keys := make([]string, 0, len(destinations))
-	for destination := range destinations {
-		keys = append(keys, destination)
-	}
-	sort.Strings(keys)
-	for _, destination := range keys {
-		counter := destinations[destination]
-		nlog.Core().Info("audit udp destination",
-			"user_id", c.userID,
-			"connection_id", c.connID,
-			"source", c.source,
-			"destination", destination,
-			"upload", counter.upload,
-			"download", counter.download,
-		)
-	}
 }
 
 func (c *trackedPacketConn) makeCountFunc(counter *atomic.Int64) N.CountFunc {

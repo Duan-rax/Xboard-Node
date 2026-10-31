@@ -137,15 +137,6 @@ type KernelConfig struct {
 	// Keep the panel's public dest/SNI for subscription generation.
 	XrayRealityDestOverride string `yaml:"xray_reality_dest_override"`
 	XrayRealityXver         int    `yaml:"xray_reality_xver"`
-	// SingBoxAuditAPIEnabled creates a private Clash API per sing-box node.
-	// In machine mode, its port is BasePort + the panel node ID and the
-	// orchestrator publishes the resulting endpoints to AuditManifestPath.
-	SingBoxAuditAPIEnabled  bool   `yaml:"singbox_audit_api_enabled"`
-	SingBoxAuditAPIBasePort int    `yaml:"singbox_audit_api_base_port"`
-	SingBoxAuditAPISecret   string `yaml:"singbox_audit_api_secret"`
-	AuditManifestPath       string `yaml:"audit_manifest_path"`
-	SingBoxAuditAPIPort     int    `yaml:"-"`
-
 	// GeoDataDir is the directory that contains GeoIP/GeoSite database files.
 	// For sing-box: geoip.db and geosite.db (geoip2-format).
 	// For xray:     geoip.dat and geosite.dat.
@@ -550,18 +541,6 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Kernel.XrayRealityXver == 0 {
 		c.Kernel.XrayRealityXver = parent.Kernel.XrayRealityXver
 	}
-	if !c.Kernel.SingBoxAuditAPIEnabled {
-		c.Kernel.SingBoxAuditAPIEnabled = parent.Kernel.SingBoxAuditAPIEnabled
-	}
-	if c.Kernel.SingBoxAuditAPIBasePort == 0 {
-		c.Kernel.SingBoxAuditAPIBasePort = parent.Kernel.SingBoxAuditAPIBasePort
-	}
-	if c.Kernel.SingBoxAuditAPISecret == "" {
-		c.Kernel.SingBoxAuditAPISecret = parent.Kernel.SingBoxAuditAPISecret
-	}
-	if c.Kernel.AuditManifestPath == "" {
-		c.Kernel.AuditManifestPath = parent.Kernel.AuditManifestPath
-	}
 	if c.Kernel.GeoDataDir == "" {
 		c.Kernel.GeoDataDir = parent.Kernel.GeoDataDir
 	}
@@ -656,9 +635,6 @@ func (c *Config) setDefaultsFrom(baseDir string) {
 	}
 	if c.Kernel.LogLevel == "" {
 		c.Kernel.LogLevel = "warn"
-	}
-	if c.Kernel.SingBoxAuditAPIEnabled && c.Kernel.SingBoxAuditAPIBasePort == 0 {
-		c.Kernel.SingBoxAuditAPIBasePort = 19090
 	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
@@ -934,8 +910,6 @@ func (c *Config) ExpandNodes() []*Config {
 		if nodeCfg.Cert.CertDir == "" {
 			nodeCfg.Cert.CertDir = filepath.Join(nodeCfg.Kernel.ConfigDir, "certs")
 		}
-		nodeCfg.setSingBoxAuditPort(entry.NodeID)
-
 		result = append(result, &nodeCfg)
 	}
 	return result
@@ -961,21 +935,7 @@ func (c *Config) ExpandMachineNode(nodeID int, nodeType string) *Config {
 			strconv.Itoa(nodeID),
 		)
 	}
-	nodeCfg.setSingBoxAuditPort(nodeID)
-
 	return &nodeCfg
-}
-
-func (c *Config) setSingBoxAuditPort(nodeID int) {
-	if !c.Kernel.SingBoxAuditAPIEnabled {
-		return
-	}
-	port := c.Kernel.SingBoxAuditAPIBasePort + nodeID
-	if port < 1 || port > 65535 {
-		c.Kernel.SingBoxAuditAPIPort = 0
-		return
-	}
-	c.Kernel.SingBoxAuditAPIPort = port
 }
 
 func InitLogger(cfg LogConfig) {

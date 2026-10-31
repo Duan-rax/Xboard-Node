@@ -114,7 +114,7 @@ func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
 		cfg["routing"] = routing
 	}
 	rules, _ := routing["rules"].([]M)
-	// This is deliberately last: safety/audit rules retain their priority and
+	// This is deliberately last: safety and panel rules retain their priority and
 	// only traffic not matched by them uses the residential/provider egress.
 	rules = append(rules, M{"type": "field", "network": "tcp,udp", "outboundTag": model.EgressProxyTag(proxy.ID)})
 	routing["rules"] = rules

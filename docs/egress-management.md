@@ -46,6 +46,6 @@ may finish or reconnect through the new route.
 1. Bind one canary node and wait for both the panel acknowledgement and a real
    proxy exit-IP test.
 2. Confirm the process PID remains unchanged in node logs.
-3. Confirm audit monitoring shows no WebSocket disconnect.
+3. Confirm node status and logs show no WebSocket disconnect.
 4. Unbind the canary and verify that its original direct exit address returns.
 5. Roll out to remaining nodes with per-machine binary backups.

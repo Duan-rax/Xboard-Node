@@ -106,7 +106,7 @@ func applyEgressProxyRoute(cfg M, proxy *model.EgressProxyConfig) {
 	}
 	rules, _ := route["rules"].([]M)
 	// Keep the configured final outbound intact. The egress is a catch-all
-	// rule after custom/audit/panel rules so hot reload updates it reliably.
+	// rule after custom and panel rules so hot reload updates it reliably.
 	rules = append(rules, M{"action": "route", "outbound": model.EgressProxyTag(proxy.ID)})
 	route["rules"] = rules
 }

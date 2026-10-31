@@ -19,13 +19,12 @@ SERVICE_NAME="xboard-node.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 CLI_PATH="/usr/local/bin/xbctl"
 INSTALLER_COPY_PATH="${INSTALL_ROOT}/install-fork.sh"
-AUDIT_CONFIG_DIR="/etc/traffic-audit-collector"
-AUDIT_CONFIG_FILE="${AUDIT_CONFIG_DIR}/config.json"
-AUDIT_BINARY_PATH="/usr/local/bin/traffic-audit-collector"
-AUDIT_SERVICE_NAME="traffic-audit-collector.service"
-AUDIT_SERVICE_PATH="/etc/systemd/system/${AUDIT_SERVICE_NAME}"
-AUDIT_LOGROTATE_PATH="/etc/logrotate.d/xboard-node-audit"
-JOURNALD_DROPIN_PATH="/etc/systemd/journald.conf.d/90-xboard-node-audit.conf"
+LEGACY_AUDIT_CONFIG_DIR="/etc/traffic-audit-collector"
+LEGACY_AUDIT_BINARY_PATH="/usr/local/bin/traffic-audit-collector"
+LEGACY_AUDIT_SERVICE_NAME="traffic-audit-collector.service"
+LEGACY_AUDIT_SERVICE_PATH="/etc/systemd/system/${LEGACY_AUDIT_SERVICE_NAME}"
+LEGACY_AUDIT_LOGROTATE_PATH="/etc/logrotate.d/xboard-node-audit"
+LEGACY_JOURNALD_DROPIN_PATH="/etc/systemd/journald.conf.d/90-xboard-node-audit.conf"
 CLI_BINARY_SOURCE=""
 DEFAULT_HEALTH_PORT=65530
 DEFAULT_KERNEL="singbox"
@@ -35,10 +34,6 @@ DEFAULT_RELEASE_VERSION="latest"
 DEFAULT_LOG_LEVEL="info"
 DEFAULT_KERNEL_LOG_LEVEL="warn"
 DEFAULT_DOWNLOAD_BASE="https://github.com/Duan-rax/Xboard-Node/releases"
-DEFAULT_AUDIT_MODE="auto"
-DEFAULT_AUDIT_BASE_PORT=19090
-DEFAULT_AUDIT_MANIFEST="/etc/xboard-node/traffic-audit-targets.json"
-DEFAULT_XRAY_ACCESS_LOG="/var/log/xboard-node/xray-{node_id}.log"
 
 ACTION="${DEFAULT_ACTION}"
 MODE=""
@@ -56,18 +51,6 @@ RUNTIME_GOGC=""
 BINARY_SOURCE=""
 CLI_BINARY_SOURCE=""
 FORCE_RECONFIGURE=0
-AUDIT_MODE="${DEFAULT_AUDIT_MODE}"
-AUDIT_ENABLED=0
-AUDIT_PANEL_EVENT_URL=""
-AUDIT_WEBHOOK_SECRET=""
-AUDIT_BASE_PORT="${DEFAULT_AUDIT_BASE_PORT}"
-AUDIT_MANIFEST_PATH="${DEFAULT_AUDIT_MANIFEST}"
-AUDIT_XRAY_ACCESS_LOG="${DEFAULT_XRAY_ACCESS_LOG}"
-AUDIT_COLLECTOR_STAGED=""
-AUDIT_CONFIG_STAGED=""
-AUDIT_SERVICE_STAGED=""
-AUDIT_LOGROTATE_STAGED=""
-JOURNALD_DROPIN_STAGED=""
 PURGE=0
 YES=0
 ARCH=""
@@ -77,7 +60,6 @@ CURRENT_STATE="fresh"
 TMP_DIR=""
 BACKUP_PATH=""
 SERVICE_EXISTED=0
-AUDIT_SERVICE_EXISTED=0
 CLEANUP_DONE=0
 
 log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -118,7 +100,6 @@ load_health_port_from_config() {
 
 rollback_install() {
     log_warn "Rolling back installation"
-    systemctl stop "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
     if [ -n "$BACKUP_PATH" ] && [ -d "$BACKUP_PATH" ]; then
         if [ -f "$BACKUP_PATH/xboard-node" ]; then
             install -m 755 "$BACKUP_PATH/xboard-node" "$BINARY_PATH"
@@ -150,33 +131,6 @@ rollback_install() {
         else
             rm -f "$SERVICE_PATH"
         fi
-        if [ -f "$BACKUP_PATH/traffic-audit-collector" ]; then
-            install -m 755 "$BACKUP_PATH/traffic-audit-collector" "$AUDIT_BINARY_PATH"
-        else
-            rm -f "$AUDIT_BINARY_PATH"
-        fi
-        if [ -f "$BACKUP_PATH/traffic-audit-config.json" ]; then
-            mkdir -p "$AUDIT_CONFIG_DIR"
-            install -m 600 "$BACKUP_PATH/traffic-audit-config.json" "$AUDIT_CONFIG_FILE"
-        else
-            rm -f "$AUDIT_CONFIG_FILE"
-        fi
-        if [ -f "$BACKUP_PATH/${AUDIT_SERVICE_NAME}" ]; then
-            install -m 644 "$BACKUP_PATH/${AUDIT_SERVICE_NAME}" "$AUDIT_SERVICE_PATH"
-        else
-            rm -f "$AUDIT_SERVICE_PATH"
-        fi
-        if [ -f "$BACKUP_PATH/xboard-node-audit.logrotate" ]; then
-            install -m 644 "$BACKUP_PATH/xboard-node-audit.logrotate" "$AUDIT_LOGROTATE_PATH"
-        else
-            rm -f "$AUDIT_LOGROTATE_PATH"
-        fi
-        if [ -f "$BACKUP_PATH/90-xboard-node-audit.conf" ]; then
-            install -d -m 755 "$(dirname "$JOURNALD_DROPIN_PATH")"
-            install -m 644 "$BACKUP_PATH/90-xboard-node-audit.conf" "$JOURNALD_DROPIN_PATH"
-        else
-            rm -f "$JOURNALD_DROPIN_PATH"
-        fi
     fi
     load_health_port_from_config "$CONFIG_FILE"
     systemctl daemon-reload || true
@@ -190,11 +144,6 @@ rollback_install() {
         fi
     else
         systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
-    fi
-    if [ "$AUDIT_SERVICE_EXISTED" -eq 1 ]; then
-        systemctl restart "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
-    else
-        systemctl disable "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
     fi
     log_warn "Rollback complete"
 }
@@ -247,8 +196,6 @@ usage() {
     --binary            Use a local xboard-node binary path instead of downloading
     --xbctl-binary      Use a local xbctl binary path instead of downloading
     --health-port       Local health port (default: 65530, use 0 to disable)
-    --audit             Machine audit mode: auto (default) or off
-    --no-audit          Disable automatic audit collector setup
     --gomemlimit        Runtime GOMEMLIMIT value, e.g. 256MiB
     --gogc              Runtime GOGC value, e.g. 50
     --force-reconfigure Overwrite an existing install even if mode/target changed
@@ -324,14 +271,6 @@ parse_args() {
                 RUNTIME_GOGC="$2"
                 shift 2
                 ;;
-            --audit)
-                AUDIT_MODE="$2"
-                shift 2
-                ;;
-            --no-audit)
-                AUDIT_MODE="off"
-                shift
-                ;;
             --force-reconfigure)
                 FORCE_RECONFIGURE=1
                 shift
@@ -379,13 +318,6 @@ parse_args() {
         *)
             log_error "Unsupported mode: $MODE"
             usage
-            exit 1
-            ;;
-    esac
-    case "$AUDIT_MODE" in
-        auto|off) ;;
-        *)
-            log_error "Unsupported audit mode: $AUDIT_MODE"
             exit 1
             ;;
     esac
@@ -453,13 +385,13 @@ install_dependencies() {
     case "$OS" in
         ubuntu|debian)
             DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get install -y -qq curl wget ca-certificates logrotate >/dev/null 2>&1
+            DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get install -y -qq curl wget ca-certificates >/dev/null 2>&1
             ;;
         centos|rhel|rocky|almalinux|fedora)
             if command -v dnf >/dev/null 2>&1; then
-                run_with_retry 5 3 dnf install -y -q curl wget ca-certificates logrotate >/dev/null 2>&1
+                run_with_retry 5 3 dnf install -y -q curl wget ca-certificates >/dev/null 2>&1
             else
-                run_with_retry 5 3 yum install -y -q curl wget ca-certificates logrotate >/dev/null 2>&1
+                run_with_retry 5 3 yum install -y -q curl wget ca-certificates >/dev/null 2>&1
             fi
             ;;
         *)
@@ -471,6 +403,15 @@ install_dependencies() {
 ensure_dirs() {
     mkdir -p "$INSTALL_ROOT" "$BACKUP_DIR"
     chmod 700 "$INSTALL_ROOT"
+}
+
+remove_legacy_audit_runtime() {
+    systemctl stop "$LEGACY_AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
+    systemctl disable "$LEGACY_AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
+    rm -f "$LEGACY_AUDIT_SERVICE_PATH" "$LEGACY_AUDIT_BINARY_PATH"
+    rm -f "$LEGACY_AUDIT_LOGROTATE_PATH" "$LEGACY_JOURNALD_DROPIN_PATH"
+    rm -rf "$LEGACY_AUDIT_CONFIG_DIR"
+    rm -f "${INSTALL_ROOT}/traffic-audit-targets.json"
 }
 
 validate_positive_int() {
@@ -617,186 +558,6 @@ stage_xbctl() {
     fi
 }
 
-random_hex() {
-    if command -v openssl >/dev/null 2>&1; then
-        openssl rand -hex 32
-    else
-        od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
-    fi
-}
-
-json_string() {
-    printf '%s' "$AUDIT_BOOTSTRAP_JSON" |
-        sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" |
-        head -1
-}
-
-fetch_audit_bootstrap() {
-    if [ "$AUDIT_MODE" = "off" ]; then
-        log_info "Automatic audit setup disabled"
-        return
-    fi
-    if [ "$MODE" != "machine" ]; then
-        log_info "Automatic audit setup applies to machine mode; skipping"
-        return
-    fi
-
-    local endpoint="${PANEL_URL%/}/api/v2/server/machine/audit-bootstrap"
-    log_step "Fetching audit bootstrap"
-    if ! AUDIT_BOOTSTRAP_JSON=$(curl -fsS -X POST \
-        --data-urlencode "machine_id=${MACHINE_ID}" \
-        --data-urlencode "token=${TOKEN}" \
-        "$endpoint" 2>/dev/null); then
-        log_warn "Audit bootstrap is unavailable; continuing without automatic audit"
-        AUDIT_ENABLED=0
-        return
-    fi
-
-    if ! printf '%s' "$AUDIT_BOOTSTRAP_JSON" | grep -q '"enabled"[[:space:]]*:[[:space:]]*true'; then
-        log_warn "Panel returned audit disabled; skipping collector"
-        AUDIT_ENABLED=0
-        return
-    fi
-
-    local audit_event_path
-    audit_event_path=$(json_string panel_event_path)
-    [ -n "$audit_event_path" ] || audit_event_path="/api/v1/traffic-audit/events"
-    AUDIT_PANEL_EVENT_URL="${PANEL_URL%/}${audit_event_path}"
-    AUDIT_WEBHOOK_SECRET=$(json_string webhook_secret)
-    AUDIT_MANIFEST_PATH=$(json_string audit_manifest_path)
-    AUDIT_XRAY_ACCESS_LOG=$(json_string xray_access_log_pattern)
-    local base_port
-    base_port=$(printf '%s' "$AUDIT_BOOTSTRAP_JSON" |
-        sed -n 's/.*"singbox_audit_api_base_port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
-        head -1)
-    [ -n "$base_port" ] && AUDIT_BASE_PORT="$base_port"
-    [ -n "$AUDIT_MANIFEST_PATH" ] || AUDIT_MANIFEST_PATH="$DEFAULT_AUDIT_MANIFEST"
-    [ -n "$AUDIT_XRAY_ACCESS_LOG" ] || AUDIT_XRAY_ACCESS_LOG="$DEFAULT_XRAY_ACCESS_LOG"
-
-    if [ -z "$AUDIT_PANEL_EVENT_URL" ] || [ -z "$AUDIT_WEBHOOK_SECRET" ]; then
-        log_error "Audit bootstrap response is incomplete"
-        exit 1
-    fi
-    AUDIT_ENABLED=1
-}
-
-stage_audit_collector() {
-    [ "$AUDIT_ENABLED" -eq 1 ] || return
-    local artifact="traffic-audit-collector-linux-${ARCH}"
-    local staged="$TMP_DIR/traffic-audit-collector"
-    local checksums="$TMP_DIR/SHA256SUMS"
-    resolve_download_url "$artifact"
-    log_step "Downloading audit collector: ${DOWNLOAD_URL}"
-    if ! curl -fsSL "$DOWNLOAD_URL" -o "$staged"; then
-        log_error "Failed to download audit collector"
-        exit 1
-    fi
-    if curl -fsSL "${DOWNLOAD_URL%/*}/SHA256SUMS" -o "$checksums"; then
-        (
-            cd "$TMP_DIR"
-            mv traffic-audit-collector "$artifact"
-            grep "  ${artifact}$" "$checksums" | sha256sum -c -
-            mv "$artifact" traffic-audit-collector
-        )
-    else
-        log_warn "Audit collector checksum file unavailable"
-    fi
-    chmod +x "$staged"
-    AUDIT_COLLECTOR_STAGED="$staged"
-}
-
-render_audit_files() {
-    [ "$AUDIT_ENABLED" -eq 1 ] || return
-    local config="$TMP_DIR/traffic-audit-config.json"
-    local service="$TMP_DIR/${AUDIT_SERVICE_NAME}"
-    local logrotate="$TMP_DIR/xboard-node-audit.logrotate"
-    local journald="$TMP_DIR/90-xboard-node-audit.conf"
-    cat >"$config" <<EOF_AUDIT_CONFIG
-{
-  "panel_event_url": "$AUDIT_PANEL_EVENT_URL",
-  "webhook_secret": "$AUDIT_WEBHOOK_SECRET",
-  "interval_seconds": 2,
-  "manifest_paths": ["$AUDIT_MANIFEST_PATH"]
-}
-EOF_AUDIT_CONFIG
-    chmod 600 "$config"
-
-    cat >"$service" <<EOF_AUDIT_SERVICE
-[Unit]
-Description=Traffic Audit Collector for Xboard
-After=network-online.target ${SERVICE_NAME}
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=${AUDIT_BINARY_PATH} -config ${AUDIT_CONFIG_FILE}
-Restart=always
-RestartSec=3
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-
-[Install]
-WantedBy=multi-user.target
-EOF_AUDIT_SERVICE
-    cat >"$logrotate" <<'EOF_AUDIT_LOGROTATE'
-/var/log/xboard-node/*.log {
-    daily
-    maxsize 100M
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-    su root root
-}
-EOF_AUDIT_LOGROTATE
-    cat >"$journald" <<'EOF_JOURNALD'
-[Journal]
-SystemMaxUse=256M
-SystemMaxFileSize=64M
-EOF_JOURNALD
-    AUDIT_CONFIG_STAGED="$config"
-    AUDIT_SERVICE_STAGED="$service"
-    AUDIT_LOGROTATE_STAGED="$logrotate"
-    JOURNALD_DROPIN_STAGED="$journald"
-    mkdir -p "$(dirname "$AUDIT_MANIFEST_PATH")" "$(dirname "$AUDIT_XRAY_ACCESS_LOG")"
-    chmod 700 "$(dirname "$AUDIT_MANIFEST_PATH")"
-    chmod 750 "$(dirname "$AUDIT_XRAY_ACCESS_LOG")"
-    if [ ! -f "$AUDIT_MANIFEST_PATH" ]; then
-        printf '{\n  "version": 1,\n  "targets": []\n}\n' >"$AUDIT_MANIFEST_PATH"
-        chmod 600 "$AUDIT_MANIFEST_PATH"
-    fi
-}
-
-install_audit_collector() {
-    [ "$AUDIT_ENABLED" -eq 1 ] || return
-    log_step "Installing audit collector"
-    install -d -m 700 "$AUDIT_CONFIG_DIR"
-    install -m 755 "$AUDIT_COLLECTOR_STAGED" "$AUDIT_BINARY_PATH"
-    install -m 600 "$AUDIT_CONFIG_STAGED" "$AUDIT_CONFIG_FILE"
-    install -m 644 "$AUDIT_SERVICE_STAGED" "$AUDIT_SERVICE_PATH"
-    install -m 644 "$AUDIT_LOGROTATE_STAGED" "$AUDIT_LOGROTATE_PATH"
-    install -d -m 755 "$(dirname "$JOURNALD_DROPIN_PATH")"
-    install -m 644 "$JOURNALD_DROPIN_STAGED" "$JOURNALD_DROPIN_PATH"
-    systemctl daemon-reload
-    systemctl restart systemd-journald >/dev/null 2>&1 || true
-    journalctl --vacuum-size=200M >/dev/null 2>&1 || true
-    systemctl enable --now "$AUDIT_SERVICE_NAME" >/dev/null 2>&1
-    systemctl restart "$AUDIT_SERVICE_NAME"
-    sleep 2
-    if ! systemctl is-active "$AUDIT_SERVICE_NAME" >/dev/null 2>&1; then
-        log_error "Audit collector failed to start"
-        journalctl -u "$AUDIT_SERVICE_NAME" -n 30 --no-pager || true
-        return 1
-    fi
-    if command -v logrotate >/dev/null 2>&1; then
-        logrotate -f "$AUDIT_LOGROTATE_PATH" >/dev/null 2>&1 || true
-    fi
-}
-
 render_config() {
     local init_args=(
         config init
@@ -831,16 +592,6 @@ render_config() {
     if [ -n "$RUNTIME_GOGC" ] && [ "$RUNTIME_GOGC" -gt 0 ] 2>/dev/null; then
         init_args+=(--gogc "$RUNTIME_GOGC")
     fi
-    if [ "$AUDIT_ENABLED" -eq 1 ]; then
-        init_args+=(
-            --singbox-audit-api
-            --singbox-audit-base-port "$AUDIT_BASE_PORT"
-            --singbox-audit-secret "$(random_hex)"
-            --audit-manifest-path "$AUDIT_MANIFEST_PATH"
-            --xray-access-log "$AUDIT_XRAY_ACCESS_LOG"
-        )
-    fi
-
     local output
     output=$("$TMP_DIR/xbctl" "${init_args[@]}") || {
         log_error "xbctl config init failed"
@@ -900,30 +651,10 @@ backup_existing_state() {
     else
         SERVICE_EXISTED=0
     fi
-    if [ -x "$AUDIT_BINARY_PATH" ]; then
-        cp "$AUDIT_BINARY_PATH" "$BACKUP_PATH/traffic-audit-collector"
-    fi
-    if [ -f "$AUDIT_CONFIG_FILE" ]; then
-        cp "$AUDIT_CONFIG_FILE" "$BACKUP_PATH/traffic-audit-config.json"
-    fi
-    if [ -f "$AUDIT_SERVICE_PATH" ]; then
-        cp "$AUDIT_SERVICE_PATH" "$BACKUP_PATH/${AUDIT_SERVICE_NAME}"
-        AUDIT_SERVICE_EXISTED=1
-    else
-        AUDIT_SERVICE_EXISTED=0
-    fi
-    if [ -f "$AUDIT_LOGROTATE_PATH" ]; then
-        cp "$AUDIT_LOGROTATE_PATH" "$BACKUP_PATH/xboard-node-audit.logrotate"
-    fi
-    if [ -f "$JOURNALD_DROPIN_PATH" ]; then
-        cp "$JOURNALD_DROPIN_PATH" "$BACKUP_PATH/90-xboard-node-audit.conf"
-    fi
 }
 
 stop_existing_service() {
-    if [ -f "$AUDIT_SERVICE_PATH" ] || systemctl is-active "$AUDIT_SERVICE_NAME" >/dev/null 2>&1; then
-        systemctl stop "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
-    fi
+    remove_legacy_audit_runtime
     if [ -f "$SERVICE_PATH" ] || systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
         systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
     fi
@@ -992,17 +723,13 @@ perform_install() {
     require_reconfigure_confirmation
     TMP_DIR=$(mktemp -d)
     ensure_dirs
-    fetch_audit_bootstrap
     stage_binary
     stage_xbctl
-    stage_audit_collector
     render_config
     render_service
-    render_audit_files
     backup_existing_state
     install_staged_files
     start_service
-    install_audit_collector
 
     log_info "Installation succeeded"
     log_info "Service: ${SERVICE_NAME}"
@@ -1012,10 +739,6 @@ perform_install() {
         log_info "Health: http://127.0.0.1:${HEALTH_PORT}/healthz"
     fi
     log_info "CLI: ${CLI_PATH}  (run '${CLI_PATH} list' if xbctl is not in PATH)"
-    if [ "$AUDIT_ENABLED" -eq 1 ]; then
-        log_info "Audit collector: ${AUDIT_SERVICE_NAME}"
-        log_info "Audit manifest: ${AUDIT_MANIFEST_PATH}"
-    fi
 }
 
 perform_upgrade() {
@@ -1031,6 +754,7 @@ perform_upgrade() {
     stage_xbctl
     render_service
     backup_existing_state
+    remove_legacy_audit_runtime
     install -m 755 "$TMP_DIR/xboard-node" "$BINARY_PATH"
     install -m 755 "$TMP_DIR/xbctl" "$CLI_PATH"
     ln -sf "$CLI_PATH" /usr/bin/xbctl 2>/dev/null || true
@@ -1065,21 +789,17 @@ perform_uninstall() {
         rm -f "$SERVICE_PATH"
         systemctl daemon-reload || true
     fi
-    systemctl stop "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
-    systemctl disable "$AUDIT_SERVICE_NAME" >/dev/null 2>&1 || true
-    rm -f "$AUDIT_SERVICE_PATH" "$AUDIT_BINARY_PATH"
-    rm -f "$AUDIT_LOGROTATE_PATH" "$JOURNALD_DROPIN_PATH"
+    remove_legacy_audit_runtime
     systemctl daemon-reload || true
     rm -f "$BINARY_PATH"
     rm -f "$CLI_PATH"
     rm -f /usr/bin/xbctl 2>/dev/null || true
     if [ "$PURGE" -eq 1 ]; then
         rm -rf "$INSTALL_ROOT"
-        rm -rf "$AUDIT_CONFIG_DIR"
         log_info "Removed ${INSTALL_ROOT}"
     else
         rm -f "$INSTALL_META"
-        log_info "Config preserved under ${INSTALL_ROOT} and ${AUDIT_CONFIG_DIR}"
+        log_info "Config preserved under ${INSTALL_ROOT}"
     fi
     log_info "Uninstall complete"
 }
